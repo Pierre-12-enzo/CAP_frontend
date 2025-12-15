@@ -1,5 +1,6 @@
 // components/dashboard/Overview.jsx - WITH REAL API INTEGRATION
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { studentAPI, cardAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
@@ -124,7 +125,7 @@ const Overview = () => {
         action: 'User Session Started',
         time: '2 minutes ago',
         user: user.firstName || 'User',
-        icon: 'pi-shield-check',
+        icon: 'pi-shield',
         color: 'blue'
       });
     }
@@ -162,26 +163,6 @@ const Overview = () => {
     }
 
     return activities;
-  };
-
-  const handleQuickAction = (action) => {
-    // Implement navigation to different sections
-    switch (action) {
-      case 'generate-cards':
-        window.location.hash = '#/card-generation';
-        break;
-      case 'manage-students':
-        window.location.hash = '#/students';
-        break;
-      case 'system-settings':
-        window.location.hash = '#/profile';
-        break;
-      case 'view-analytics':
-        window.location.hash = '#/analytics';
-        break;
-      default:
-        console.log('Action:', action);
-    }
   };
 
   const refreshData = () => {
@@ -278,7 +259,7 @@ const Overview = () => {
           title="System Status"
           value={stats.systemStatus}
           change="Live"
-          icon="pi-shield-check"
+          icon="pi-check-circle"
           color={stats.systemStatus === 'optimal' ? 'emerald' : 'amber'}
           trend="up"
         />
@@ -300,28 +281,28 @@ const Overview = () => {
                 description="Batch process student ID cards"
                 icon="pi-qrcode"
                 color="emerald"
-                onClick={() => handleQuickAction('generate-cards')}
+                to="/dashboard/card-studio"
               />
               <ActionCard
                 title="Manage Students"
                 description="Add or edit student records"
                 icon="pi-user-plus"
                 color="blue"
-                onClick={() => handleQuickAction('manage-students')}
+                to="/dashboard/students"
               />
               <ActionCard
                 title="System Settings"
                 description="Configure application preferences"
                 icon="pi-cog"
                 color="purple"
-                onClick={() => handleQuickAction('system-settings')}
+                to="/dashboard/settings"
               />
               <ActionCard
                 title="View Analytics"
                 description="Detailed system reports"
                 icon="pi-chart-pie"
                 color="amber"
-                onClick={() => handleQuickAction('view-analytics')}
+                to="/dashboard/permissions"
               />
             </div>
           </div>
@@ -464,7 +445,7 @@ const MetricCard = ({ title, value, change, icon, color, trend }) => {
 };
 
 // Action Card Component (unchanged)
-const ActionCard = ({ title, description, icon, color, onClick }) => {
+const ActionCard = ({ title, description, icon, color, to }) => {
   const colorClasses = {
     emerald: 'bg-emerald-500',
     blue: 'bg-blue-500',
@@ -473,8 +454,8 @@ const ActionCard = ({ title, description, icon, color, onClick }) => {
   };
 
   return (
-    <button
-      onClick={onClick}
+    <Link
+      to={to}
       className="w-full text-left p-4 rounded-xl bg-white border border-gray-200 hover:border-emerald-300 hover:shadow-lg transition-all duration-300 group"
     >
       <div className="flex items-center space-x-4">
@@ -488,7 +469,7 @@ const ActionCard = ({ title, description, icon, color, onClick }) => {
           <p className="text-sm text-gray-600 mt-1">{description}</p>
         </div>
       </div>
-    </button>
+    </Link>
   );
 };
 

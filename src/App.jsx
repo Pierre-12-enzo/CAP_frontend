@@ -6,6 +6,7 @@ import Register from './pages/auth/Register';
 import Dashboard from './components/Dashboard';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import CardGeneration from './pages/dashboard/CardGeneration';
+import NotFound from './components/errors/NotFound';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/" element={<Navigate to="/dashboard" />} />
+            <Route path='*' element={<NotFound />} />
           </Routes>
         </div>
       </Router>
@@ -34,43 +36,46 @@ function App() {
 }
 
 // Protected Route Component
+// Protected Route Component
+// Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  const [authChecked, setAuthChecked] = useState(false);
-
-  useEffect(() => {
-    if (!loading) {
-      // Small delay to ensure state is settled after loading completes
-      const timer = setTimeout(() => {
-        setAuthChecked(true);
-      }, 50);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [loading]);
-
-  console.log('🛡️ ProtectedRoute:');
-  console.log('   - Loading:', loading);
-  console.log('   - AuthChecked:', authChecked);
-  console.log('   - User:', user);
-
-  // Show loading while checking auth
-  if (loading || !authChecked) {
+  
+  // Check if we're currently on the login page
+  const isLoginPage = window.location.pathname === '/login';
+  
+  console.log('🔥 PROTECTED ROUTE DEBUG 🔥');
+  console.log('1. Current path:', window.location.pathname);
+  console.log('2. Is login page?', isLoginPage);
+  console.log('3. User exists?', !!user);
+  console.log('4. User object:', user);
+  console.log('5. Loading?', loading);
+  console.log('-----------------------------------');
+  
+  // If we're on login page, show it without ANY checks
+  if (isLoginPage) {
+    console.log('✅ ON LOGIN PAGE - RETURNING LOGIN COMPONENT');
+    return children;
+  }
+  
+  // Only for non-login pages:
+  if (loading) {
+    console.log('⏳ LOADING - Showing loading screen');
     return (
       <div className="min-h-screen bg-gradient-to-br from-emerald-900 via-green-900 to-teal-900 flex items-center justify-center">
-        <div className="text-white text-xl">Verifying session...</div>
+        <div className="text-white text-xl">Loading...</div>
       </div>
     );
   }
-
-  // If we have a user, render the protected content
+  
   if (user) {
+    console.log('✅ AUTHENTICATED - Showing protected content');
     return children;
   }
-
-  // If no user after auth check, redirect to login
-  console.log('🚫 No user after auth check, redirecting to login');
+  
+  console.log('🚫 NO USER - Redirecting to /login');
   return <Navigate to="/login" replace />;
 };
+
 
 export default App;

@@ -33,7 +33,17 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       // Token expired or invalid
       localStorage.removeItem('capmis_token');
-      window.location.href = '/login';
+
+      // Check if this is a login request
+      const isLoginRequest = error.config?.url?.includes('/login');
+
+      // Only redirect if it's NOT a login request
+      if (!isLoginRequest) {
+        console.log('401 error - Redirecting to login (non-login request)');
+        window.location.href = '/login';
+      } else {
+        console.log('401 error on login - NOT redirecting (let login handle it)');
+      }
     }
     return Promise.reject(error);
   }
@@ -47,10 +57,19 @@ export const authAPI = {
       const response = await api.post('/auth/login', { email, password });
       return response.data;
     } catch (error) {
-      throw error.response?.data || { message: 'Login failed' };
+      // Return the error response from backend
+      if (error.response && error.response.data) {
+        console.log('Backend error response:', error.response.data);
+        return error.response.data; // This will be {success: false, error: 'Invalid credentials'}
+      }
+
+      // For network errors
+      return {
+        success: false,
+        error: 'Network error. Please check your connection.'
+      };
     }
   },
-
   // Register user
   register: async (userData) => {
     try {
@@ -177,7 +196,7 @@ export const cardAPI = {
     }
   },
   //Getting template Dimension
-    getTemplateDimensions: async (templateId) => {
+  getTemplateDimensions: async (templateId) => {
     try {
       const response = await api.get(`/card/template-dimensions/${templateId}`);
       return response.data;
@@ -279,7 +298,7 @@ export const cardAPI = {
 // Student Management API calls
 export const studentAPI = {
   // Get all students
-  getStudents: async (page = 1, limit = 50) => {
+  getStudents: async (page = 1, limit = 10) => {
     try {
       const response = await api.get(`/students?page=${page}&limit=${limit}`);
       return response.data;
@@ -332,12 +351,22 @@ export const studentAPI = {
       throw error.response?.data || { message: 'Bulk upload failed' };
     }
   },
-  cleanupOrphanedFiles: async () => {
+  deleteAllStudents: async () => {
     try {
-      const response = await api.post('/students/cleanup-orphaned-files');
+      const response = await api.delete('/students/delete-all');
       return response.data;
     } catch (error) {
-      throw error.response?.data || { message: 'Cleanup failed' };
+      throw error.response?.data || { message: 'Failed to delete all students' };
+    }
+  },
+
+  // Get student statistics
+  getStudentStats: async () => {
+    try {
+      const response = await api.get('/students/stats');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to get student stats' };
     }
   }
 };
@@ -396,29 +425,166 @@ export const checkServerStatus = async () => {
 export const permissionAPI = {
   // Get all permissions
   getAll: () => api.get('/permissions'),
-  
+
   // Create multiple permissions (bulk)
-  createBulk: (permissions) => api.post('/permissions/bulk', { permissions }),
-  
+  create: (permissions) => api.post('/permissions/create', permissions),
+
   // Get permissions by student ID
   getByStudent: (studentId) => api.get(`/permissions/student/${studentId}`),
-  
+
   // Get single permission by ID
   getById: (permissionId) => api.get(`/permissions/${permissionId}`),
-  
-  // Update a permission
-  update: (permissionId, permissionData) => api.put(`/permissions/${permissionId}`, permissionData),
-  
+
+  // Update a permission status
+  updateStatus: async (id, data = {}) => {
+    const response = await api.patch(`/permissions/${id}/status`, {
+      status: 'returned',
+      ...data
+    });
+    return response.data;
+  },
+
   // Delete a permission
   delete: (permissionId) => api.delete(`/permissions/${permissionId}`),
-  
+
   // Generate PDF for permission (if you add this route later)
-  generatePDF: (permissionId) => api.post(`/permissions/${permissionId}/print`, {}, { 
+  generatePDF: (permissionId) => api.post(`/permissions/${permissionId}/print`, {}, {
     responseType: 'blob' // Important for file downloads
   }),
-  
+
   // Get permission statistics/analytics
-  getStats: () => api.get('/permissions/stats')
+  getStats: () => api.get('/permissions/stats'),
+
+  // Delete all permissions
+  deleteAllPermissions: async () => {
+    try {
+      const response = await api.delete('/permissions/delete-all');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to delete all permissions' };
+    }
+  },
+
+  // Get permission statistics
+  getPermissionStats: async () => {
+    try {
+      const response = await api.get('/permissions/stats');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || { message: 'Failed to get permission stats' };
+    }
+  }
+
+};
+
+
+
+//Analytics Api
+export const analyticsAPI = {
+  getDashboardSummary: async () => {
+    const response = await api.get('/analytics/dashboard-summary');
+    return response.data;
+  },
+
+  getMonthlyReport: async (year, month) => {
+    const response = await api.get(`/analytics/monthly-report/${year}/${month}`);
+    return response.data;
+  },
+
+  getTrends: async (timeRange = 'monthly') => {
+    const response = await api.get(`/analytics/trends/${timeRange}`);
+    return response.data;
+  },
+
+  getReturnPunctuality: async (startDate, endDate) => {
+    let url = '/analytics/return-punctuality';
+    if (startDate && endDate) {
+      url += `?startDate=${startDate}&endDate=${endDate}`;
+    }
+    const response = await api.get(url);
+    return response.data;
+  },
+
+  getClassAnalytics: async () => {
+    const response = await api.get('/analytics/class');
+    return response.data;
+  },
+
+  getReasonAnalytics: async () => {
+    const response = await api.get('/analytics/reasons');
+    return response.data;
+  },
+
+  // Weekly stats (we just added routes for these)
+  getWeeklyActive: async () => {
+    const response = await api.get('/analytics/weekly-active');
+    return response.data;
+  },
+
+  getWeeklyReturned: async () => {
+    const response = await api.get('/analytics/weekly-returned');
+    return response.data;
+  },
+
+  // Student stats (we just added route)
+  getStudentPermissionStats: async (studentId) => {
+    const response = await api.get(`/analytics/student/${studentId}`);
+    return response.data;
+  }
+};
+
+// SMS API (for checking SMS status)
+export const smsAPI = {
+  getSMSStats: async () => {
+    const response = await api.get('/analytics/sms-stats');
+    return response.data;
+  },
+
+  sendTestSMS: async (phoneNumber, message) => {
+    const response = await api.post('/analytics/test-sms', {
+      phone: phoneNumber,
+      message
+    });
+    return response.data;
+  },
+
+  getSMSLogs: async (limit = 50) => {
+    const response = await api.get(`/analytics/sms-logs?limit=${limit}`);
+    return response.data;
+  }
+};
+
+
+// Export API for data export
+export const exportAPI = {
+  exportPermissions: async (format = 'excel', filters = {}) => {
+    const response = await api.post('/export/permissions', {
+      format,
+      filters
+    }, {
+      responseType: format === 'excel' ? 'blob' : 'json'
+    });
+    return response.data;
+  },
+
+  exportStudents: async (format = 'excel') => {
+    const response = await api.post('/export/students', {
+      format
+    }, {
+      responseType: format === 'excel' ? 'blob' : 'json'
+    });
+    return response.data;
+  },
+
+  exportAnalytics: async (format = 'excel', type = 'summary') => {
+    const response = await api.post('/export/analytics', {
+      format,
+      type
+    }, {
+      responseType: format === 'excel' ? 'blob' : 'json'
+    });
+    return response.data;
+  }
 };
 
 export default api;

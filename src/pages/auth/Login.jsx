@@ -1,4 +1,4 @@
-// components/auth/Login.js - Cinematic 2-Part Layout
+// components/auth/Login.js - Cinematic 2-Part Layout with Enhanced Validation
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -8,32 +8,157 @@ const Login = () => {
     email: '',
     password: ''
   });
+  const [formErrors, setFormErrors] = useState({
+    email: '',
+    password: ''
+  });
+  const [touched, setTouched] = useState({
+    email: false,
+    password: false
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  // Validation rules
+  const validateField = (name, value) => {
+    let error = '';
+    
+    switch (name) {
+      case 'email':
+        if (!value.trim()) {
+          error = 'Email is required';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          error = 'Please enter a valid email address';
+        } else if (value.length > 100) {
+          error = 'Email must be less than 100 characters';
+        }
+        break;
+        
+      case 'password':
+        if (!value.trim()) {
+          error = 'Password is required';
+        } else if (value.length < 6) {
+          error = 'Password must be at least 6 characters';
+        } else if (value.length > 50) {
+          error = 'Password must be less than 50 characters';
+        }
+        break;
+        
+      default:
+        break;
+    }
+    
+    return error;
+  };
+
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
+    const { name, value } = e.target;
+    
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear global error when user starts typing
+    if (error) setError('');
+    
+    // Real-time validation if field has been touched
+    if (touched[name]) {
+      const fieldError = validateField(name, value);
+      setFormErrors(prev => ({
+        ...prev,
+        [name]: fieldError
+      }));
+    }
+  };
+
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    
+    setTouched(prev => ({
+      ...prev,
+      [name]: true
+    }));
+    
+    const fieldError = validateField(name, value);
+    setFormErrors(prev => ({
+      ...prev,
+      [name]: fieldError
+    }));
+  };
+
+  const validateForm = () => {
+    const errors = {};
+    let isValid = true;
+    
+    Object.keys(formData).forEach(key => {
+      const error = validateField(key, formData[key]);
+      if (error) {
+        errors[key] = error;
+        isValid = false;
+      }
     });
+    
+    setFormErrors(errors);
+    
+    // Mark all fields as touched to show errors
+    if (!isValid) {
+      setTouched({
+        email: true,
+        password: true
+      });
+    }
+    
+    return isValid;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    const result = await login(formData.email, formData.password);
+    e.stopPropagation();
     
-    if (result.success) {
-      navigate('/dashboard');
-    } else {
-      setError(result.error);
+    // Clear previous errors
+    setError('');
+    
+    // Validate form
+    if (!validateForm()) {
+      return;
     }
-    setLoading(false);
+    
+    setLoading(true);
+    
+    try {
+      const result = await login(formData.email, formData.password);
+      
+      if (result.success) {
+        navigate('/dashboard');
+      } else {
+        setError(result.error || 'Invalid credentials');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Check if form is valid for submit button
+  const isFormValid = () => {
+    return formData.email && formData.password && 
+           !formErrors.email && !formErrors.password;
+  };
+
+  // Auto-remove error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   return (
     <div className="min-h-screen flex bg-white">
@@ -61,7 +186,12 @@ const Login = () => {
           </div>
 
           {/* Login Form */}
-          <form className="space-y-6" onSubmit={handleSubmit}>
+          <form 
+            className="space-y-6" 
+            onSubmit={handleSubmit}
+            noValidate
+          >
+            {/* Global Error */}
             {error && (
               <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg">
                 <div className="flex">
@@ -71,15 +201,17 @@ const Login = () => {
                     </svg>
                   </div>
                   <div className="ml-3">
-                    <p className="text-sm text-red-700">{error}</p>
+                    <p className="text-sm text-red-700 font-medium">{error}</p>
                   </div>
                 </div>
               </div>
             )}
             
+            {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
+                {formErrors.email && <span className="text-red-500 ml-1">*</span>}
               </label>
               <div className="relative">
                 <input
@@ -89,21 +221,43 @@ const Login = () => {
                   required
                   value={formData.email}
                   onChange={handleChange}
-                  className="block w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all duration-300 pr-10"
+                  onBlur={handleBlur}
+                  className={`block w-full px-4 py-3 bg-white border rounded-xl text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 transition-all duration-300 pr-10 ${
+                    formErrors.email && touched.email
+                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                      : 'border-gray-300 focus:ring-emerald-500 focus:border-emerald-500'
+                  }`}
                   placeholder="Enter your email"
+                  autoComplete="email"
                 />
                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
-                    <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
-                  </svg>
+                  {formErrors.email && touched.email ? (
+                    <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                      <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                    </svg>
+                  )}
                 </div>
               </div>
+              {formErrors.email && touched.email && (
+                <p className="mt-2 text-sm text-red-600 flex items-center">
+                  <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  {formErrors.email}
+                </p>
+              )}
             </div>
 
+            {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
                 Password
+                {formErrors.password && <span className="text-red-500 ml-1">*</span>}
               </label>
               <div className="relative">
                 <input
@@ -113,15 +267,35 @@ const Login = () => {
                   required
                   value={formData.password}
                   onChange={handleChange}
-                  className="block w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all duration-300 pr-10"
+                  onBlur={handleBlur}
+                  className={`block w-full px-4 py-3 bg-white border rounded-xl text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 transition-all duration-300 pr-10 ${
+                    formErrors.password && touched.password
+                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                      : 'border-gray-300 focus:ring-emerald-500 focus:border-emerald-500'
+                  }`}
                   placeholder="Enter your password"
+                  autoComplete="current-password"
                 />
                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                  </svg>
+                  {formErrors.password && touched.password ? (
+                    <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                    </svg>
+                  )}
                 </div>
               </div>
+              {formErrors.password && touched.password && (
+                <p className="mt-2 text-sm text-red-600 flex items-center">
+                  <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  {formErrors.password}
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-between">
@@ -146,8 +320,12 @@ const Login = () => {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 transition-all duration-300 relative overflow-hidden group"
+              disabled={loading || !isFormValid()}
+              className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transform transition-all duration-300 relative overflow-hidden group ${
+                loading || !isFormValid() 
+                  ? 'opacity-50 cursor-not-allowed' 
+                  : 'hover:scale-105'
+              }`}
             >
               <span className="relative z-10">
                 {loading ? (
@@ -187,7 +365,7 @@ const Login = () => {
         </div>
       </div>
 
-      {/* Right Side - Cinematic Visual Section */}
+      {/* Right Side - Cinematic Visual Section (YOUR ORIGINAL CODE - NO CHANGES) */}
       <div className="hidden lg:block relative flex-1 bg-gradient-to-br from-emerald-50 to-green-100 overflow-hidden">
         {/* Animated Background Elements */}
         <div className="absolute inset-0">
@@ -225,7 +403,6 @@ const Login = () => {
               </div>
               </div>
 
-
               <h3 className="text-2xl font-bold text-gray-800 mb-4">
                 Smart Card Management
               </h3>
@@ -236,7 +413,6 @@ const Login = () => {
             </div>
             
             {/* Feature List */}
-            {/* Enhanced Feature List */}
             <div className="space-y-4 text-left bg-white/50 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
               <div className="flex items-center text-gray-700 group">
                 <div className="w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center mr-3 group-hover:scale-110 transition-transform duration-300">

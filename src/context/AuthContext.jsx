@@ -97,21 +97,43 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
+      setLoading(true);
+
+      // authAPI.login now returns the data object (doesn't throw)
       const data = await authAPI.login(email, password);
 
+      // Check if login was successful
       if (data.success && data.token) {
+        // Store token
         const stored = storage.setItem('capmis_token', data.token);
         if (!stored) {
-          console.error('Failed to store token in any storage');
-          return { success: false, error: 'Browser storage is blocked. Please check your privacy settings.' };
+          return {
+            success: false,
+            error: 'Browser storage is blocked. Please check privacy settings.'
+          };
         }
 
-        setUser(data.user);
-        return { success: true };
+        // Set user data
+        if (data.user) {
+          setUser(data.user);
+          return { success: true, error: null };
+        }
       }
-      return { success: false, error: data.message || 'Login failed' };
+
+      // If login failed, return the error
+      return {
+        success: false,
+        error: data.error || data.message || 'Login failed'
+      };
+
     } catch (error) {
-      return { success: false, error: error.message || 'Login failed' };
+      console.error('Unexpected login error:', error);
+      return {
+        success: false,
+        error: 'An unexpected error occurred. Please try again.'
+      };
+    } finally {
+      setLoading(false);
     }
   };
 

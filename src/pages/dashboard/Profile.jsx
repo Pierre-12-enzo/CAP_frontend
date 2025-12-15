@@ -1,7 +1,7 @@
 // components/dashboard/Profile.jsx - CINEMATIC PROFILE
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { authAPI, studentAPI, templateAPI } from '../../services/api';
+import { authAPI, studentAPI, permissionAPI } from '../../services/api';
 
 const Profile = () => {
   const { user, logout, updateUser } = useAuth(); // Removed updateUser since it doesn't exist
@@ -698,111 +698,360 @@ const InfoItem = ({ label, value }) => (
 const CleanupSection = () => {
   const [cleaning, setCleaning] = useState(false);
   const [result, setResult] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [confirmationText, setConfirmationText] = useState('');
+  const [stats, setStats] = useState({
+    students: 0,
+    permissions: 0,
+    studentsWithPhotos: 0
+  });
 
-  const handleTemplateCleanup = async () => {
-    setCleaning(true);
-    setResult(null);
+  // Fetch statistics on component mount
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  const fetchStats = async () => {
     try {
-      const response = await templateAPI.cleanupOrphanedFiles();
-      setResult({
-        type: 'success',
-        message: `✅ Template cleanup completed: ${response.orphanedFilesDeleted} files deleted`
+      // Get student stats
+      const studentsRes = await studentAPI.getStudents();
+      const studentStats = await studentAPI.getStudentStats?.();
+      
+      // Get permission stats
+      let permissionsCount = 0;
+      try {
+        const permissionsRes = await permissionAPI.getAll();
+        permissionsCount = permissionsRes.data?.permissions?.length || 0;
+      } catch (error) {
+        console.log('Could not fetch permissions:', error.message);
+      }
+      
+      setStats({
+        students: studentsRes.length || 0,
+        permissions: permissionsCount,
+        studentsWithPhotos: studentStats?.stats?.studentsWithPhotos || 0
       });
     } catch (error) {
-      setResult({
-        type: 'error',
-        message: `❌ Template cleanup failed: ${error.message}`
-      });
-    } finally {
-      setCleaning(false);
+      console.error('Error fetching stats:', error);
     }
   };
 
-  const handleStudentCleanup = async () => {
-    setCleaning(true);
-    setResult(null);
-    try {
-      const response = await studentAPI.cleanupOrphanedFiles();
+  const handleDeleteAllStudents = async () => {
+    if (confirmAction !== 'delete-students') {
+      setConfirmAction('delete-students');
+      setConfirmationText('');
+      setResult(null);
+      return;
+    }
+
+    if (confirmationText.toLowerCase() !== 'delete all students') {
       setResult({
-        type: 'success',
-        message: `✅ Student photos cleanup completed: ${response.orphanedFilesDeleted} files deleted`
+        type: 'error',
+        message: '❌ Please type "DELETE ALL STUDENTS" exactly to confirm'
       });
+      return;
+    }
+
+    setCleaning(true);
+    
+    try {
+      const response = await studentAPI.deleteAllStudents();
+      
+      if (response.success) {
+        setResult({
+          type: 'success',
+          message: `✅ ${response.message}\n🗑️ Deleted: ${response.deletedCount} students, ${response.deletedPhotos} photos`
+        });
+        fetchStats();
+      } else {
+        setResult({
+          type: 'error',
+          message: `❌ Failed: ${response.error || response.message}`
+        });
+      }
     } catch (error) {
       setResult({
         type: 'error',
-        message: `❌ Student cleanup failed: ${error.message}`
+        message: `❌ Error: ${error.message || 'Unknown error'}`
       });
     } finally {
       setCleaning(false);
+      setConfirmAction(null);
+      setConfirmationText('');
     }
+  };
+
+  const handleDeleteAllPermissions = async () => {
+    if (confirmAction !== 'delete-permissions') {
+      setConfirmAction('delete-permissions');
+      setConfirmationText('');
+      setResult(null);
+      return;
+    }
+
+    if (confirmationText.toLowerCase() !== 'delete all permissions') {
+      setResult({
+        type: 'error',
+        message: '❌ Please type "DELETE ALL PERMISSIONS" exactly to confirm'
+      });
+      return;
+    }
+
+    setCleaning(true);
+    
+    try {
+      const response = await permissionAPI.deleteAllPermissions();
+      
+      if (response.success) {
+        setResult({
+          type: 'success',
+          message: `✅ ${response.message}\n🗑️ Deleted: ${response.deletedCount} permission records`
+        });
+        fetchStats();
+      } else {
+        setResult({
+          type: 'error',
+          message: `❌ Failed: ${response.error || response.message}`
+        });
+      }
+    } catch (error) {
+      setResult({
+        type: 'error',
+        message: `❌ Error: ${error.message || 'Unknown error'}`
+      });
+    } finally {
+      setCleaning(false);
+      setConfirmAction(null);
+      setConfirmationText('');
+    }
+  };
+
+  const handleCancel = () => {
+    setConfirmAction(null);
+    setConfirmationText('');
+    setResult(null);
+  };
+
+  const ConfirmationDialog = () => {
+    const getActionDetails = () => {
+      switch (confirmAction) {
+        case 'delete-students':
+          return {
+            title: 'Delete All Students',
+            warning: `This will PERMANENTLY delete ALL ${stats.students} students and their ${stats.studentsWithPhotos} photos from Cloudinary.`,
+            instruction: 'Type "DELETE ALL STUDENTS" to confirm:',
+            confirmText: 'DELETE ALL STUDENTS',
+            buttonColor: 'bg-red-600 hover:bg-red-700',
+            buttonText: 'Delete All Students'
+          };
+        case 'delete-permissions':
+          return {
+            title: 'Delete All Permissions',
+            warning: `This will PERMANENTLY delete ALL ${stats.permissions} permission records.`,
+            instruction: 'Type "DELETE ALL PERMISSIONS" to confirm:',
+            confirmText: 'DELETE ALL PERMISSIONS',
+            buttonColor: 'bg-red-600 hover:bg-red-700',
+            buttonText: 'Delete All Permissions'
+          };
+        default:
+          return null;
+      }
+    };
+
+    const details = getActionDetails();
+    if (!details) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900">{details.title}</h3>
+            <i className="pi pi-exclamation-triangle text-red-600 text-2xl"></i>
+          </div>
+          
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+            <div className="flex items-start space-x-3">
+              <i className="pi pi-exclamation-circle text-red-600 text-xl mt-0.5"></i>
+              <div>
+                <p className="font-semibold text-red-800">⚠️ DANGEROUS ACTION</p>
+                <p className="text-sm text-red-700 mt-1">{details.warning}</p>
+                <p className="text-sm text-red-700 mt-2 font-bold">This action cannot be undone!</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              {details.instruction}
+            </label>
+            <input
+              type="text"
+              value={confirmationText}
+              onChange={(e) => setConfirmationText(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              placeholder={details.confirmText}
+              autoFocus
+            />
+          </div>
+          
+          <div className="flex space-x-3">
+            <button
+              onClick={handleCancel}
+              className="flex-1 bg-gray-200 text-gray-800 px-4 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-colors"
+              disabled={cleaning}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmAction === 'delete-students' ? handleDeleteAllStudents : handleDeleteAllPermissions}
+              disabled={cleaning || confirmationText.toLowerCase() !== details.confirmText.toLowerCase()}
+              className={`flex-1 ${details.buttonColor} text-white px-4 py-3 rounded-xl font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {cleaning ? (
+                <span className="flex items-center justify-center space-x-2">
+                  <i className="pi pi-spinner pi-spin"></i>
+                  <span>Processing...</span>
+                </span>
+              ) : (
+                details.buttonText
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-2xl font-bold text-gray-900">File Cleanup</h3>
+        <h3 className="text-2xl font-bold text-gray-900">System Cleanup</h3>
         <i className="pi pi-trash text-emerald-600 text-2xl"></i>
       </div>
 
       <div className="bg-gradient-to-br from-white to-gray-50 rounded-2xl shadow-xl border border-emerald-200/30 p-6">
-        <p className="text-sm text-gray-600 mb-6">
-          Remove orphaned files that are no longer associated with any templates or students.
-        </p>
+        {/* Statistics Display */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-600">Total Students</p>
+                <p className="text-2xl font-bold text-blue-800">{stats.students}</p>
+              </div>
+              <i className="pi pi-users text-blue-500 text-xl"></i>
+            </div>
+            <p className="text-xs text-blue-600 mt-2">
+              {stats.studentsWithPhotos} with photos
+            </p>
+          </div>
+          
+          <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-purple-600">Total Permissions</p>
+                <p className="text-2xl font-bold text-purple-800">{stats.permissions}</p>
+              </div>
+              <i className="pi pi-file text-purple-500 text-xl"></i>
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-amber-600">Storage Status</p>
+                <p className="text-lg font-bold text-amber-800">Cloud Storage</p>
+              </div>
+              <i className="pi pi-cloud text-amber-500 text-xl"></i>
+            </div>
+            <p className="text-xs text-amber-600 mt-2">
+              Using Cloudinary (no local cleanup needed)
+            </p>
+          </div>
+        </div>
 
+        {/* Result Message */}
         {result && (
           <div className={`mb-6 p-4 rounded-2xl border ${
             result.type === 'success'
               ? 'bg-green-50 border-green-200 text-green-800'
               : 'bg-red-50 border-red-200 text-red-800'
           }`}>
-            {result.message}
+            <div className="flex items-start space-x-3">
+              <i className={`pi ${
+                result.type === 'success' ? 'pi-check-circle' : 'pi-times-circle'
+              } text-xl mt-0.5`}></i>
+              <div>
+                <p className="font-medium whitespace-pre-line">{result.message}</p>
+              </div>
+            </div>
           </div>
         )}
 
-        <div className="flex space-x-4">
+        {/* Warning Banner */}
+        <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-2xl p-4 mb-6">
+          <div className="flex items-start space-x-3">
+            <i className="pi pi-exclamation-triangle text-red-600 text-xl mt-0.5"></i>
+            <div>
+              <p className="font-semibold text-red-800">⚠️ DANGEROUS ACTIONS BELOW</p>
+              <p className="text-sm text-red-700 mt-1">
+                These actions will permanently delete data. Use with extreme caution!
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
-            onClick={handleTemplateCleanup}
-            disabled={cleaning}
-            className="flex items-center bg-amber-500 text-white px-6 py-3 rounded-2xl font-semibold hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
+            onClick={handleDeleteAllStudents}
+            disabled={cleaning || stats.students === 0}
+            className="group relative bg-gradient-to-r from-red-600 to-orange-600 text-white px-6 py-4 rounded-2xl font-semibold hover:from-red-700 hover:to-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 overflow-hidden"
           >
-            {cleaning ? (
-              <>
-                <i className="pi pi-spinner pi-spin mr-2"></i>
-                Cleaning...
-              </>
-            ) : (
-              <>
-                <i className="pi pi-trash mr-2"></i>
-                Clean Template Files
-              </>
-            )}
+            <div className="relative z-10 flex items-center justify-center space-x-3">
+              <i className="pi pi-users text-xl"></i>
+              <span>Delete All Students</span>
+            </div>
+            <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors"></div>
+            <div className="absolute top-2 right-2 bg-red-800 text-white text-xs px-2 py-1 rounded-full">
+              {stats.students}
+            </div>
           </button>
 
           <button
-            onClick={handleStudentCleanup}
-            disabled={cleaning}
-            className="flex items-center bg-blue-500 text-white px-6 py-3 rounded-2xl font-semibold hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
+            onClick={handleDeleteAllPermissions}
+            disabled={cleaning || stats.permissions === 0}
+            className="group relative bg-gradient-to-r from-red-600 to-pink-600 text-white px-6 py-4 rounded-2xl font-semibold hover:from-red-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 overflow-hidden"
           >
-            {cleaning ? (
-              <>
-                <i className="pi pi-spinner pi-spin mr-2"></i>
-                Cleaning...
-              </>
-            ) : (
-              <>
-                <i className="pi pi-images mr-2"></i>
-                Clean Student Photos
-              </>
-            )}
+            <div className="relative z-10 flex items-center justify-center space-x-3">
+              <i className="pi pi-file text-xl"></i>
+              <span>Delete All Permissions</span>
+            </div>
+            <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors"></div>
+            <div className="absolute top-2 right-2 bg-red-800 text-white text-xs px-2 py-1 rounded-full">
+              {stats.permissions}
+            </div>
           </button>
         </div>
 
-        <div className="mt-6 text-xs text-gray-500 space-y-1">
-          <p>• Template cleanup: Removes unused template files</p>
-          <p>• Student cleanup: Removes unused student photos</p>
-          <p>• This operation cannot be undone</p>
+        {/* Help Text */}
+        <div className="mt-6 text-sm text-gray-600 space-y-2">
+          <p className="flex items-center space-x-2">
+            <i className="pi pi-info-circle text-gray-500"></i>
+            <span>Students: Deletes all student records and their Cloudinary photos</span>
+          </p>
+          <p className="flex items-center space-x-2">
+            <i className="pi pi-info-circle text-gray-500"></i>
+            <span>Permissions: Deletes all permission slip records</span>
+          </p>
+          <p className="flex items-center space-x-2 text-red-600 font-medium">
+            <i className="pi pi-exclamation-triangle"></i>
+            <span>These actions require confirmation and cannot be undone</span>
+          </p>
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      {confirmAction && <ConfirmationDialog />}
     </div>
   );
 };

@@ -8,6 +8,7 @@ import StudentManagement from '../pages/dashboard/StudentManagement';
 import Profile from '../pages/dashboard/Profile';
 import TemplateManager from '../pages/dashboard/TemplateManager';
 import PermissionStudio from '../pages/dashboard/PermissionStudio';
+import Documentation from '../pages/dashboard/Documentation';
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -98,13 +99,16 @@ const Dashboard = () => {
           {/* Support Links */}
           {sidebarOpen && (
             <div className="space-y-2">
+              <NavLinkItem
+                icon="pi-book"
+                label="Documentation"
+                to="/dashboard/documentation"
+                active={isActiveRoute('/dashboard/documentation')}
+                sidebarOpen={sidebarOpen}
+              />
               <SidebarLink
                 icon="pi-question-circle"
                 label="Help & Support"
-              />
-              <SidebarLink
-                icon="pi-book"
-                label="Documentation"
               />
             </div>
           )}
@@ -205,6 +209,7 @@ const Dashboard = () => {
                 <Route path='/permissions' element={<PermissionStudio />} />
                 <Route path="/students" element={<StudentManagement />} />
                 <Route path="/settings" element={<Profile />} />
+                <Route path="/documentation" element={<Documentation/>}/> 
               </Routes>
             </div>
           </div>
@@ -251,7 +256,8 @@ const getPageTitle = (pathname) => {
     '/dashboard/templates': 'Template Manager',
     '/dashboard/students': 'Students',
     '/dashboard/permissions': 'Permission Studio',
-    '/dashboard/settings': 'Settings'
+    '/dashboard/settings': 'Settings',
+    '/dashboard/documentation': 'Documentation'
   };
   return titles[pathname] || 'Dashboard';
 };
@@ -262,7 +268,8 @@ const getPageSubtitle = (pathname) => {
     '/dashboard/card-studio': 'ID card design and generation',
     '/dashboard/permissions': 'Permission Management',
     '/dashboard/students': 'Manage student records',
-    '/dashboard/settings': 'System configuration'
+    '/dashboard/settings': 'System configuration',
+    '/dashboard/documentation': 'User guides and API references'
   };
   return subtitles[pathname] || 'Manage your operations';
 };
