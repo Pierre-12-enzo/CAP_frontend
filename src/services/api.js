@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // For Vite projects
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:5000/api';
 // Create axios instance with default config
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -254,15 +254,71 @@ export const cardAPI = {
   },
   // Single-click CSV processing
   processCSVAndGenerate: async (formData) => {
+    console.log('🟡 API: processCSVAndGenerate called');
+
     try {
+      console.log('🟡 API: Making request to /card/process-csv-generate');
+      console.log('🟡 API: FormData entries:');
+
+      // Log form data contents
+      for (let pair of formData.entries()) {
+        if (pair[1] instanceof File) {
+          console.log(`  ${pair[0]}: ${pair[1].name} (${pair[1].size} bytes)`);
+        } else {
+          console.log(`  ${pair[0]}: ${pair[1]}`);
+        }
+      }
+
       const response = await api.post('/card/process-csv-generate', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        responseType: 'blob', // ✅ IMPORTANT: Expect binary data
-        timeout: 300000
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        responseType: 'blob',
+        timeout: 300000,
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          console.log(`📤 Upload progress: ${percentCompleted}%`);
+        }
       });
-      return response.data; // This will be the ZIP file blob
+
+      console.log('✅ API: Request successful, received blob');
+      console.log('✅ API: Response size:', response.data.size, 'bytes');
+      console.log('✅ API: Response type:', response.data.type);
+
+      return response.data;
+
     } catch (error) {
-      throw error.response?.data || { message: 'CSV processing failed' };
+      console.error('❌ API: Request failed:', error);
+
+      if (error.code === 'ECONNABORTED') {
+        console.error('❌ API: Request timeout');
+        throw new Error('Request timeout. Server took too long to respond.');
+      }
+
+      if (error.response) {
+        console.error('❌ API: Server responded with error:', error.response.status);
+
+        // Try to read error message
+        try {
+          const errorText = await error.response.data.text();
+          console.error('❌ API: Error response:', errorText);
+
+          try {
+            const errorData = JSON.parse(errorText);
+            throw new Error(errorData.error || `Server error: ${error.response.status}`);
+          } catch {
+            throw new Error(`Server error: ${error.response.status} - ${errorText.substring(0, 100)}`);
+          }
+        } catch (parseError) {
+          throw new Error(`Server error: ${error.response.status}`);
+        }
+      } else if (error.request) {
+        console.error('❌ API: No response received');
+        throw new Error('No response from server. Check if backend is running.');
+      } else {
+        console.error('❌ API: Request setup error:', error.message);
+        throw error;
+      }
     }
   },
 
@@ -372,6 +428,7 @@ export const studentAPI = {
 };
 
 // Template Management API calls
+
 export const templateAPI = {
   getTemplates: async () => {
     const response = await api.get('/templates');
@@ -394,9 +451,30 @@ export const templateAPI = {
     const response = await api.delete(`/templates/${templateId}`);
     return response.data;
   },
-  previewTemplate: async (templateName) => {
-    const Url = `${API_BASE_URL}/templates/preview/${templateName}`;
-    return Url;
+
+  // FIXED: previewTemplate function
+  previewTemplate: async (publicId) => {
+    try {
+      // Generate the preview URL (no actual API call needed)
+      // The backend preview route redirects to Cloudinary URL
+      const previewUrl = `${API_BASE_URL}/templates/preview/${encodeURIComponent(publicId)}`;
+      console.log('🖼️ Generated preview URL:', previewUrl);
+      return previewUrl;
+    } catch (error) {
+      console.error('❌ Error generating preview URL:', error);
+      throw error;
+    }
+  },
+
+  // Alternative method: Direct Cloudinary URL generation
+  getDirectTemplateUrl: async (templateId, side = 'front') => {
+    try {
+      const response = await api.get(`/templates/url/${templateId}/${side}`);
+      return response.data.url;
+    } catch (error) {
+      console.error('❌ Error getting direct template URL:', error);
+      throw error;
+    }
   },
 
   cleanupOrphanedFiles: async () => {
@@ -407,7 +485,6 @@ export const templateAPI = {
       throw error.response?.data || { message: 'Cleanup failed' };
     }
   }
-
 };
 
 

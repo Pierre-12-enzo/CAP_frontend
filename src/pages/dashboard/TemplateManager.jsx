@@ -56,12 +56,12 @@ const TemplateManager = () => {
             const response = await templateAPI.uploadTemplate(formData);
             if (response.success) {
                 setShowUploadModal(false);
-                setNewTemplate({ 
-                    name: '', 
+                setNewTemplate({
+                    name: '',
                     description: '',
-                    frontSide: null, 
-                    backSide: null, 
-                    setAsDefault: false 
+                    frontSide: null,
+                    backSide: null,
+                    setAsDefault: false
                 });
                 await loadTemplates(); // Refresh list
                 alert('Template uploaded successfully!');
@@ -195,8 +195,7 @@ const TemplateManager = () => {
     );
 };
 
-// Template Card Component - UPDATED TO SHOW BOTH SIDES
-// TemplateManager.jsx - ADD BETTER DEBUGGING
+// Template Card Component - SIMPLE WORKING VERSION
 const TemplateCard = ({ template, onSetDefault, onDelete }) => {
     const [frontPreview, setFrontPreview] = useState(null);
     const [backPreview, setBackPreview] = useState(null);
@@ -206,25 +205,19 @@ const TemplateCard = ({ template, onSetDefault, onDelete }) => {
         const loadPreviews = async () => {
             setLoading(true);
             try {
-                console.log('🔍 Template data:', {
-                    name: template.name,
-                    frontFilename: template.frontSide?.filename,
-                    backFilename: template.backSide?.filename,
-                    frontOriginal: template.frontSide?.originalname,
-                    backOriginal: template.backSide?.originalname
-                });
+                console.log('📦 Loading template:', template.name);
 
-                if (template.frontSide?.filename) {
-                    const frontUrl = await templateAPI.previewTemplate(template.frontSide.filename);
-                    console.log('🖼️ Front preview URL:', frontUrl);
-                    setFrontPreview(frontUrl);
+                // Use frontSideUrl and backSideUrl from API response
+                if (template.frontSideUrl) {
+                    console.log('🖼️ Using frontSideUrl:', template.frontSideUrl);
+                    setFrontPreview(template.frontSideUrl);
                 }
-                
-                if (template.backSide?.filename) {
-                    const backUrl = await templateAPI.previewTemplate(template.backSide.filename);
-                    console.log('🖼️ Back preview URL:', backUrl);
-                    setBackPreview(backUrl);
+
+                if (template.backSideUrl) {
+                    console.log('🖼️ Using backSideUrl:', template.backSideUrl);
+                    setBackPreview(template.backSideUrl);
                 }
+
             } catch (error) {
                 console.error('Error loading previews:', error);
             } finally {
@@ -236,38 +229,49 @@ const TemplateCard = ({ template, onSetDefault, onDelete }) => {
     }, [template]);
 
     return (
-        <div className={`border-2  rounded-2xl p-4 transition-all duration-300 lg:w-80 ${
-            template.isDefault 
-                ? 'border-emerald-500 bg-emerald-50 shadow-lg' 
+        <div className={`border-2 rounded-2xl p-4 transition-all duration-300 lg:w-80 ${template.isDefault
+                ? 'border-emerald-500 bg-emerald-50 shadow-lg'
                 : 'border-gray-200 hover:border-emerald-300'
-        }`}>
-            {/* Template Previews - Both Sides */}
+            }`}>
+            {/* Template Previews */}
             <div className="flex space-x-2 mb-4">
-                {/* Front Side Preview */}
+                {/* Front Side */}
                 <div className="flex-2">
                     <div className="text-xs text-gray-500 mb-1 text-center">Front</div>
                     <div className="aspect-[3/4] bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
-                        {frontPreview ? (
-                            <img 
-                                src={frontPreview} 
+                        {loading ? (
+                            <i className="pi pi-spinner pi-spin text-gray-400"></i>
+                        ) : frontPreview ? (
+                            <img
+                                src={frontPreview}
                                 alt={`${template.name} - Front`}
                                 className="w-full h-full object-cover"
+                                onError={(e) => {
+                                    console.log('❌ Front image failed, trying fallback');
+                                    e.target.src = template.frontSide?.filepath || template.frontSide?.url;
+                                }}
                             />
                         ) : (
                             <i className="pi pi-image text-gray-400"></i>
                         )}
                     </div>
                 </div>
-                
-                {/* Back Side Preview */}
+
+                {/* Back Side */}
                 <div className="flex-2">
                     <div className="text-xs text-gray-500 mb-1 text-center">Back</div>
                     <div className="aspect-[3/4] bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
-                        {backPreview ? (
-                            <img 
-                                src={backPreview} 
+                        {loading ? (
+                            <i className="pi pi-spinner pi-spin text-gray-400"></i>
+                        ) : backPreview ? (
+                            <img
+                                src={backPreview}
                                 alt={`${template.name} - Back`}
                                 className="w-full h-full object-cover"
+                                onError={(e) => {
+                                    console.log('❌ Back image failed, trying fallback');
+                                    e.target.src = template.backSide?.filepath || template.backSide?.url;
+                                }}
                             />
                         ) : (
                             <i className="pi pi-image text-gray-400"></i>
@@ -284,9 +288,6 @@ const TemplateCard = ({ template, onSetDefault, onDelete }) => {
                         {template.description && (
                             <p className="text-sm text-gray-600 truncate">{template.description}</p>
                         )}
-                        <p className="text-xs text-gray-500">
-                            {new Date(template.createdAt).toLocaleDateString()}
-                        </p>
                     </div>
                     {template.isDefault && (
                         <span className="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded-full font-medium">

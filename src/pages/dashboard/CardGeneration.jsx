@@ -16,23 +16,22 @@ const CardGeneration = () => {
     const [photoUploadStatus, setPhotoUploadStatus] = useState('idle');
     //Coordinates
     const [coordinates, setCoordinates] = useState({
-        photo: { x: 34, y: 250, width: 260, height: 250 },     // Adjusted for 1080x607
-        name: { x: 570, y: 240, maxWidth: 500 },
-        class: { x: 530, y: 300, maxWidth: 500 },
-        level: { x: 530, y: 320, maxWidth: 500 },
-        gender: { x: 530, y: 300, maxWidth: 550 },
-        residence: { x: 570, y: 380, maxWidth: 500 },
-        academic_year: { x: 610, y: 425, maxWidth: 550 }
+        photo: { x: 50, y: 230, width: 250, height: 250 }, // Example
+        name: { x: 580, y: 220, maxWidth: 400 },
+        class: { x: 580, y: 270, maxWidth: 200 },
+        level: { x: 580, y: 320, maxWidth: 200 },
+        gender: { x: 580, y: 370, maxWidth: 200 },
+        residence: { x: 620, y: 420, maxWidth: 300 },
+        academic_year: { x: 670, y: 470, maxWidth: 200 }
     });
     const [templateDimensions, setTemplateDimensions] = useState({
         width: 1080,
         height: 607
     });
 
-    // Refs
-    const csvFileRef = useRef(null);
-    const photoZipRef = useRef(null);
-    const templateRef = useRef(null);
+    // In CardGeneration component, add these states:
+    const [csvFile, setCsvFile] = useState(null);
+    const [photoZipFile, setPhotoZipFile] = useState(null);
 
     // UseEffect for Automatic Load Data
     useEffect(() => {
@@ -76,20 +75,164 @@ const CardGeneration = () => {
     };
 
     // Load template preview URLs
+    // Load template preview URLs - UPDATED FOR CLOUDINARY
     const loadTemplatePreviews = async (template) => {
         try {
-            if (template.frontSide?.filename) {
-                const frontUrl = await templateAPI.previewTemplate(template.frontSide.filename);
-                console.log('🖼️ Front preview URL:', frontUrl);
-                // You can store these URLs in state if needed for preview
+            // Use template.frontSideUrl if available (from GET /templates endpoint)
+            if (template.frontSideUrl) {
+                console.log('🖼️ Front preview URL (from API):', template.frontSideUrl);
             }
-            if (template.backSide?.filename) {
-                const backUrl = await templateAPI.previewTemplate(template.backSide.filename);
-                console.log('🖼️ Back preview URL:', backUrl);
+            // Fallback to using public_id
+            else if (template.frontSide?.public_id) {
+                const frontUrl = await templateAPI.previewTemplate(template.frontSide.public_id);
+                console.log('🖼️ Front preview URL (from preview API):', frontUrl);
+            }
+
+            // Use template.backSideUrl if available
+            if (template.backSideUrl) {
+                console.log('🖼️ Back preview URL (from API):', template.backSideUrl);
+            }
+            // Fallback to using public_id
+            else if (template.backSide?.public_id) {
+                const backUrl = await templateAPI.previewTemplate(template.backSide.public_id);
+                console.log('🖼️ Back preview URL (from preview API):', backUrl);
             }
         } catch (error) {
             console.error('Error loading template previews:', error);
         }
+    };
+
+    // ✅ UPDATED: Default Template Card Component for Cloudinary
+    const DefaultTemplateCard = ({ template, selected, onSelect }) => {
+        const [frontPreview, setFrontPreview] = useState(null);
+        const [backPreview, setBackPreview] = useState(null);
+        const [loading, setLoading] = useState(true);
+
+        useEffect(() => {
+            const loadPreviews = async () => {
+                setLoading(true);
+                try {
+                    console.log('🔍 Loading template:', template.name, {
+                        frontSideUrl: template.frontSideUrl,
+                        backSideUrl: template.backSideUrl,
+                        frontPublicId: template.frontSide?.public_id,
+                        backPublicId: template.backSide?.public_id
+                    });
+
+                    // Priority 1: Use direct URL from template API
+                    if (template.frontSideUrl) {
+                        setFrontPreview(template.frontSideUrl);
+                    }
+                    // Priority 2: Use public_id with preview API
+                    else if (template.frontSide?.public_id) {
+                        const frontUrl = await templateAPI.previewTemplate(template.frontSide.public_id);
+                        setFrontPreview(frontUrl);
+                    }
+
+                    // Priority 1: Use direct URL from template API
+                    if (template.backSideUrl) {
+                        setBackPreview(template.backSideUrl);
+                    }
+                    // Priority 2: Use public_id with preview API
+                    else if (template.backSide?.public_id) {
+                        const backUrl = await templateAPI.previewTemplate(template.backSide.public_id);
+                        setBackPreview(backUrl);
+                    }
+                } catch (error) {
+                    console.error('Error loading template previews:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            loadPreviews();
+        }, [template]);
+
+        return (
+            <div
+                onClick={onSelect}
+                className={`border-2 rounded-2xl p-6 cursor-pointer transition-all duration-300 ${selected
+                    ? 'border-emerald-500 bg-emerald-50 shadow-lg'
+                    : 'border-gray-200 hover:border-emerald-300'
+                    }`}
+            >
+                <div className="flex items-center justify-between mb-4">
+                    <div>
+                        <h4 className="text-lg font-bold text-gray-900">{template.name}</h4>
+                        {template.description && (
+                            <p className="text-sm text-gray-600">{template.description}</p>
+                        )}
+                    </div>
+                    <span className="bg-emerald-100 text-emerald-800 text-sm px-3 py-1 rounded-full font-medium">
+                        Default Template
+                    </span>
+                </div>
+
+                <div className="flex space-x-4">
+                    {/* Front Side */}
+                    <div className="flex-1">
+                        <div className="text-sm font-medium text-gray-700 mb-2">Front Side</div>
+                        <div className="aspect-[3/4] bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border-2 border-gray-300">
+                            {frontPreview ? (
+                                <img
+                                    src={frontPreview}
+                                    alt={`${template.name} - Front`}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                        console.error('Failed to load front preview');
+                                        e.target.style.display = 'none';
+                                    }}
+                                />
+                            ) : loading ? (
+                                <div className="text-center text-gray-400">
+                                    <i className="pi pi-spinner pi-spin text-2xl mb-2"></i>
+                                    <p className="text-xs">Loading...</p>
+                                </div>
+                            ) : (
+                                <div className="text-center text-gray-400">
+                                    <i className="pi pi-image text-2xl mb-2"></i>
+                                    <p className="text-xs">No preview</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Back Side */}
+                    <div className="flex-1">
+                        <div className="text-sm font-medium text-gray-700 mb-2">Back Side</div>
+                        <div className="aspect-[3/4] bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border-2 border-gray-300">
+                            {backPreview ? (
+                                <img
+                                    src={backPreview}
+                                    alt={`${template.name} - Back`}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                        console.error('Failed to load back preview');
+                                        e.target.style.display = 'none';
+                                    }}
+                                />
+                            ) : loading ? (
+                                <div className="text-center text-gray-400">
+                                    <i className="pi pi-spinner pi-spin text-2xl mb-2"></i>
+                                    <p className="text-xs">Loading...</p>
+                                </div>
+                            ) : (
+                                <div className="text-center text-gray-400">
+                                    <i className="pi pi-image text-2xl mb-2"></i>
+                                    <p className="text-xs">No preview</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="mt-4 text-center">
+                    <p className="text-sm text-emerald-600 font-medium">
+                        {selected ? '✓ Selected for generation' : 'Click to select this template'}
+                    </p>
+                </div>
+            </div>
+        );
     };
 
     //Load template Dimensions
@@ -148,44 +291,64 @@ const CardGeneration = () => {
             setActiveStep('process');
         }
     };
-
-    // ✅ FIXED: Single-click CSV processing with template check
+    // ✅ FIXED: handleCSVProcessing using state files
     const handleCSVProcessing = async (e) => {
-        e.preventDefault();
+        e?.preventDefault();
+
+        console.log('🟡 1. Starting batch processing...');
 
         // Validate template
         if (!selectedTemplateId) {
+            console.log('❌ No template selected');
             alert('Please select a template first');
             setActiveStep('template');
             return;
         }
 
-        // Validate CSV
-        if (!csvFileRef.current?.files[0]) {
+        // Validate CSV using state
+        if (!csvFile) {
+            console.log('❌ No CSV file selected');
             alert('Please select a CSV file');
+            setActiveStep('upload');
             return;
         }
 
+        console.log('🟡 2. Validation passed, setting status...');
         setGenerationStatus('processing');
         setProgress(0);
 
         const formData = new FormData();
 
-        // Add files
-        formData.append('csv', csvFileRef.current.files[0]);
-        formData.append('templateId', selectedTemplateId);
+        // Add CSV file from state
+        formData.append('csv', csvFile);
+        console.log('📁 Added CSV:', csvFile.name, csvFile.size);
 
-        if (photoZipRef.current?.files[0]) {
-            formData.append('photoZip', photoZipRef.current.files[0]);
+        // Add photo ZIP if provided
+        if (photoZipFile) {
+            formData.append('photoZip', photoZipFile);
+            console.log('📁 Added Photos ZIP:', photoZipFile.name, photoZipFile.size);
         }
+
+        // Add template ID
+        formData.append('templateId', selectedTemplateId);
+        console.log('🆔 Template ID:', selectedTemplateId);
 
         // Add coordinates
         formData.append('coordinates', JSON.stringify(coordinates));
+        console.log('📍 Coordinates:', coordinates);
+
+        // Debug: Check what's in formData
+        for (let pair of formData.entries()) {
+            console.log('📦 FormData:', pair[0], pair[1]);
+        }
 
         try {
+            console.log('🟡 3. Starting progress simulation...');
+
             // Simulate progress
             const progressInterval = setInterval(() => {
                 setProgress(prev => {
+                    console.log(`📊 Progress: ${prev}%`);
                     if (prev >= 90) {
                         clearInterval(progressInterval);
                         return 90;
@@ -194,45 +357,68 @@ const CardGeneration = () => {
                 });
             }, 500);
 
-            // ✅ FIXED: Call API and handle blob response
-            const zipBlob = await cardAPI.processCSVAndGenerate(formData);
+            console.log('🟡 4. Calling API...');
+            console.log('📡 API URL: /card/process-csv-generate');
 
+            // Add timeout promise for debugging
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('API call timeout (30s)')), 30000);
+            });
+
+            const apiPromise = cardAPI.processCSVAndGenerate(formData);
+
+            console.log('🟡 5. Waiting for API response...');
+            const zipBlob = await Promise.race([apiPromise, timeoutPromise]);
+
+            console.log('✅ API response received!');
             clearInterval(progressInterval);
             setProgress(100);
             setGenerationStatus('completed');
 
-            // ✅ FIXED: Create download from blob
+            // Create download
+            console.log('🟡 6. Creating download...');
             const url = window.URL.createObjectURL(zipBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `batch-id-cards-${Date.now()}.zip`;
+            a.download = `batch-cards-${Date.now()}.zip`;
             document.body.appendChild(a);
             a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
 
-            // ✅ Update batch info for UI
+            // Cleanup
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                console.log('✅ Download complete!');
+            }, 100);
+
+            // Update UI
             setBatchInfo({
-                totalCards: 1, // You might want to get actual count from somewhere
+                totalCards: 1,
                 processed: 1,
                 failed: 0
             });
 
-        } catch (error) {
-            setGenerationStatus('error');
-            console.error('❌ Batch processing error:', error);
+            console.log('✅ Batch processing completed successfully');
 
-            // Handle JSON errors
-            if (error.message && error.message.includes('Unexpected token')) {
-                try {
-                    const errorText = await error.response.text();
-                    const errorData = JSON.parse(errorText);
-                    alert(`Processing failed: ${errorData.error}`);
-                } catch {
-                    alert('Processing failed: Unknown error');
-                }
+        } catch (error) {
+            console.error('❌ Batch processing FAILED:', error);
+            console.error('Error details:', {
+                message: error.message,
+                stack: error.stack,
+                response: error.response
+            });
+
+            setGenerationStatus('error');
+
+            // Show specific error messages
+            if (error.message.includes('timeout')) {
+                alert('Request timed out. Server might be busy or offline.');
+            } else if (error.message.includes('Network Error')) {
+                alert('Network error. Check your connection.');
+            } else if (error.response) {
+                alert(`Server error: ${error.response.status} ${error.response.statusText}`);
             } else {
-                alert(`Processing failed: ${error.message}`);
+                alert(`Processing failed: ${error.message || 'Unknown error'}`);
             }
         }
     };
@@ -527,6 +713,7 @@ const CardGeneration = () => {
                         {/* Dynamic Content */}
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
                             {/* BATCH UPLOAD STEP */}
+                            {/* BATCH UPLOAD STEP - UPDATED */}
                             {activeStep === 'upload' && generationMode === 'batch' && (
                                 <div className="space-y-6">
                                     <h3 className="text-lg font-semibold text-gray-900">Upload Student Data</h3>
@@ -536,19 +723,37 @@ const CardGeneration = () => {
                                             title="Student Data (CSV)"
                                             description="Upload CSV file with student information"
                                             accept=".csv"
-                                            ref={csvFileRef}
                                             icon="pi-file-excel"
                                             color="emerald"
+                                            onFileSelect={(file) => setCsvFile(file)}
                                         />
                                         <FileUploadCard
                                             title="Student Photos (ZIP)"
                                             description="ZIP folder containing student photos"
                                             accept=".zip"
-                                            ref={photoZipRef}
                                             icon="pi-images"
                                             color="blue"
                                             note="Supports JPG, JPEG, PNG - Optional"
+                                            onFileSelect={(file) => setPhotoZipFile(file)}
                                         />
+                                    </div>
+
+                                    {/* File selection status */}
+                                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-700">CSV Status:</p>
+                                                <p className={`text-sm ${csvFile ? 'text-emerald-600' : 'text-gray-500'}`}>
+                                                    {csvFile ? `✓ ${csvFile.name}` : 'No file selected'}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-700">Photos Status:</p>
+                                                <p className={`text-sm ${photoZipFile ? 'text-blue-600' : 'text-gray-500'}`}>
+                                                    {photoZipFile ? `✓ ${photoZipFile.name}` : 'No file selected (optional)'}
+                                                </p>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -563,6 +768,39 @@ const CardGeneration = () => {
                                                     Photos should be named matching student_id (e.g., STU001.jpg)
                                                 </p>
                                             </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Continue button */}
+                                    <div className="pt-4 border-t border-gray-200">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <p className="text-sm text-gray-600">
+                                                    {csvFile ? 'Ready to process' : 'Select a CSV file to continue'}
+                                                </p>
+                                            </div>
+
+                                            <button
+                                                onClick={() => {
+                                                    if (!csvFile) {
+                                                        alert('Please select a CSV file first');
+                                                        return;
+                                                    }
+
+                                                    if (!selectedTemplateId) {
+                                                        alert('Please select a template first');
+                                                        setActiveStep('template');
+                                                        return;
+                                                    }
+
+                                                    setActiveStep('process');
+                                                }}
+                                                disabled={!csvFile}
+                                                className="bg-emerald-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <i className="pi pi-arrow-right mr-2"></i>
+                                                Continue to Template
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -651,6 +889,7 @@ const CardGeneration = () => {
                                         )}
                                     </div>
 
+
                                     {selectedTemplateId && (
                                         <div className="flex justify-end">
                                             <button
@@ -710,54 +949,31 @@ const CardGeneration = () => {
                     {/* Right Column - Preview & Status */}
                     <div className="space-y-6">
 
-                        {/* Live Preview */}
+                        {/* Live Preview - FIXED */}
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
                             <div className="flex items-center justify-between mb-6">
                                 <h3 className="text-lg font-semibold text-gray-900">Live Preview</h3>
                                 <i className="pi pi-eye text-emerald-600 text-xl"></i>
                             </div>
 
-                            <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center border-2 border-emerald-200/30">
+                            <div className="bg-gray-900 rounded-2xl p-4">
                                 {selectedTemplate ? (
-                                    <>
-                                        {/* For Single Student Mode */}
-                                        {generationMode === 'single' && (
-                                            <TemplatePreview
-                                                template={selectedTemplate}
-                                                coordinates={coordinates}
-                                                student={selectedStudent}
-                                                templateDimensions={templateDimensions}
-                                            />
-                                        )}
-
-                                        {/* For Batch Mode - Show first student from CSV as preview */}
-                                        {generationMode === 'batch' && (
-                                            <TemplatePreview
-                                                template={selectedTemplate}
-                                                coordinates={coordinates}
-                                                students={students} // Pass the students array
-                                                templateDimensions={templateDimensions}
-                                            />
-                                        )}
-                                    </>
+                                    <FixedSizeTemplatePreview
+                                        template={selectedTemplate}
+                                        coordinates={coordinates}
+                                        student={selectedStudent}
+                                    />
                                 ) : (
-                                    <div className="text-center text-white flex items-center justify-center">
-                                        <div className="w-[400px] h-[300px] bg-gradient-to-br from-emerald-400 to-green-500 rounded-xl flex items-center justify-center">
-                                            <div className="text-center">
-                                                <i className="pi pi-image text-4xl mb-4 opacity-50"></i>
-                                                <p>Select a template to preview</p>
-                                            </div>
-                                        </div>
+                                    <div className="text-center text-white py-20">
+                                        <i className="pi pi-image text-4xl mb-4 opacity-50"></i>
+                                        <p>Select a template to preview</p>
                                     </div>
                                 )}
                             </div>
 
                             <div className="mt-4 text-center">
-                                <p className="text-sm text-gray-600">
-                                    Template: {templateDimensions.width}x{templateDimensions.height}px
-                                </p>
-                                <p className="text-xs text-emerald-600 font-medium">
-                                    ✅ Preview matches actual generation dimensions
+                                <p className="text-sm text-emerald-600 font-medium">
+                                    ✅ Live preview showing template
                                 </p>
                             </div>
                         </div>
@@ -945,86 +1161,207 @@ const DefaultTemplateCard = ({ template, selected, onSelect }) => {
     );
 };
 
+// ✅ SIMPLE Template Preview - Just shows the image with overlays
+const TemplatePreview = ({ template, coordinates, student }) => {
+    const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+    const displayStudent = student || {};
 
-// ✅ UPDATED: Template Preview Component with better error handling
-const TemplatePreview = ({
-    template,
-    coordinates,
-    student,
-    templateDimensions = { width: 1080, height: 607 },
-    students = [] // Add students array for batch mode
-}) => {
-    const [frontPreview, setFrontPreview] = useState(null);
-    const [studentPhoto, setStudentPhoto] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-
-    // Scale factor to fit template in container (700x500 max)
-    const scale = Math.min(700 / templateDimensions.width, 500 / templateDimensions.height);
-    const displayWidth = templateDimensions.width * scale;
-    const displayHeight = templateDimensions.height * scale;
-
-    // Get display student - for single mode use selected student, for batch mode use first student
-    const displayStudent = student || (students.length > 0 ? students[0] : null);
+    // Get the ACTUAL template image URL from Cloudinary
+    const templateUrl = template?.frontSide?.secure_url ||
+        template?.frontSide?.url ||
+        template?.frontSide?.filepath ||
+        template?.frontSideUrl;
 
     useEffect(() => {
-        const loadPreview = async () => {
-            setLoading(true);
-            setError(null);
-            setStudentPhoto(null); // Reset photo when student changes
+        if (!templateUrl) return;
 
-            try {
-                if (template?.frontSide?.filename) {
-                    const frontUrl = await templateAPI.previewTemplate(template.frontSide.filename);
-                    setFrontPreview(frontUrl);
-
-                    // Load student photo if available
-                    if (displayStudent?.has_photo && displayStudent?.photo_path) {
-                        try {
-                            console.log(displayStudent);
-                            const photoUrl = await cardAPI.getStudentPhoto(displayStudent._id);
-                            console.log(photoUrl);
-                            setStudentPhoto(photoUrl);
-                        } catch (photoError) {
-                            console.log('📸 No student photo available for preview:', photoError.message);
-                        }
-                    }
-
-                    setLoading(false);
-                } else {
-                    setError('No template found');
-                    setLoading(false);
-                }
-            } catch (err) {
-                console.error('❌ Error loading template preview:', err);
-                setError('Failed to load template preview');
-                setLoading(false);
-            }
+        // Get actual image dimensions
+        const img = new Image();
+        img.onload = () => {
+            setImageSize({
+                width: img.naturalWidth,
+                height: img.naturalHeight
+            });
         };
+        img.src = templateUrl;
+    }, [templateUrl]);
 
-        if (template) {
-            loadPreview();
-        } else {
-            setLoading(false);
-            setError('No template selected');
-        }
-    }, [template, displayStudent]); // Reload when template or student changes
-
-    if (loading) {
+    if (!templateUrl) {
         return (
-            <div className="flex items-center justify-center h-full text-white">
-                <i className="pi pi-spinner pi-spin text-2xl mr-2"></i>
-                <p>Loading template preview...</p>
+            <div className="text-center text-white py-10">
+                <i className="pi pi-image text-4xl mb-2 opacity-50"></i>
+                <p>No template selected</p>
             </div>
         );
     }
 
-    if (error || !frontPreview) {
+    return (
+        <div className="relative">
+            {/* The ACTUAL template image */}
+            <img
+                src={templateUrl}
+                alt="Template Preview"
+                className="max-w-full h-auto rounded-lg shadow-lg"
+            />
+
+            {/* Overlay coordinates - 1:1 mapping */}
+            <div className="absolute top-0 left-0 w-full h-full">
+                {/* Photo area */}
+                {coordinates.photo && (
+                    <div
+                        className="absolute border-2 border-green-400 rounded-lg overflow-hidden"
+                        style={{
+                            left: coordinates.photo.x,
+                            top: coordinates.photo.y,
+                            width: coordinates.photo.width,
+                            height: coordinates.photo.height,
+                            backgroundColor: 'rgba(0, 255, 0, 0.1)'
+                        }}
+                    >
+                        {displayStudent.photo_url ? (
+                            <img
+                                src={displayStudent.photo_url}
+                                alt="Student"
+                                className="w-full h-full object-cover"
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-green-500 bg-opacity-20">
+                                <i className="pi pi-user text-white"></i>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Text fields - SIMPLE */}
+                {Object.entries(coordinates).map(([field, coord]) => {
+                    if (field === 'photo') return null;
+
+                    const studentValue = displayStudent[field] || field.replace('_', ' ');
+
+                    return (
+                        <div
+                            key={field}
+                            className="absolute bg-black bg-opacity-70 text-white px-2 py-1 rounded text-sm font-medium"
+                            style={{
+                                left: coord.x,
+                                top: coord.y,
+                                maxWidth: coord.maxWidth || 'auto'
+                            }}
+                        >
+                            {studentValue}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+
+const FixedSizeTemplatePreview = ({ template, coordinates, student }) => {
+    const containerRef = useRef(null);
+    const [scale, setScale] = useState(1);
+    const [containerSize, setContainerSize] = useState({ width: 800, height: 450 });
+    const [imageLoaded, setImageLoaded] = useState(false);
+
+    const displayStudent = student || {};
+
+    // Get the ACTUAL template URL
+    const templateUrl = template?.frontSide?.secure_url ||
+        template?.frontSide?.url ||
+        template?.frontSide?.filepath;
+
+    // Fixed aspect ratio (your template: 1200×675 = 16:9)
+    const templateAspectRatio = 1200 / 675; // 16:9
+    const fixedContainerWidth = 800; // Fixed width, won't change with sidebar
+    const fixedContainerHeight = fixedContainerWidth / templateAspectRatio;
+
+    useEffect(() => {
+        // Always use fixed size, ignore parent container changes
+        setContainerSize({
+            width: fixedContainerWidth,
+            height: fixedContainerHeight
+        });
+
+        // Calculate scale: fixed container vs actual template (1200×675)
+        const scaleX = fixedContainerWidth / 1200;
+        const scaleY = fixedContainerHeight / 675;
+        const minScale = Math.min(scaleX, scaleY);
+
+        setScale(minScale);
+
+        console.log('📏 Preview scaling:', {
+            templateSize: '1200×675',
+            containerSize: `${fixedContainerWidth}×${fixedContainerHeight}`,
+            scale: minScale
+        });
+    }, []);
+
+    const renderCoordinate = (field, coord) => {
+        if (!coord || coord.x === undefined) return null;
+
+        const studentValue = displayStudent[field] ||
+            (field === 'academic_year' ? '2024' :
+                field === 'name' ? 'Student Name' :
+                    field.charAt(0).toUpperCase() + field.slice(1));
+
+        const scaledX = coord.x * scale;
+        const scaledY = coord.y * scale;
+        const scaledWidth = coord.width ? coord.width * scale : 'auto';
+        const scaledHeight = coord.height ? coord.height * scale : 'auto';
+        const scaledMaxWidth = coord.maxWidth ? coord.maxWidth * scale : 'auto';
+
+        const styles = {
+            position: 'absolute',
+            left: `${scaledX}px`,
+            top: `${scaledY}px`,
+            maxWidth: `${scaledMaxWidth}px`
+        };
+
+        if (field === 'photo') {
+            return (
+                <div
+                    key="photo"
+                    className="absolute border-2 border-emerald-400 rounded-lg overflow-hidden bg-emerald-500 bg-opacity-20"
+                    style={{
+                        ...styles,
+                        width: `${scaledWidth}px`,
+                        height: `${scaledHeight}px`
+                    }}
+                >
+                    {displayStudent.photo_url ? (
+                        <img
+                            src={displayStudent.photo_url}
+                            alt="Student"
+                            className="w-full h-full object-cover"
+                        />
+                    ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                            <i className="pi pi-user text-white text-lg"></i>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         return (
-            <div className="text-center text-white flex flex-col items-center justify-center h-full">
-                <i className="pi pi-exclamation-triangle text-2xl mb-2"></i>
-                <p>Template preview not available</p>
-                <p className="text-sm text-gray-300 mt-1">Using fallback design</p>
+            <div
+                key={field}
+                className="absolute bg-black bg-opacity-70 text-white px-2 py-1 rounded text-sm font-medium whitespace-nowrap"
+                style={styles}
+            >
+                {studentValue}
+            </div>
+        );
+    };
+
+    if (!templateUrl) {
+        return (
+            <div className="flex items-center justify-center h-full text-white">
+                <div className="text-center">
+                    <i className="pi pi-image text-4xl mb-4 opacity-50"></i>
+                    <p>No template selected</p>
+                </div>
             </div>
         );
     }
@@ -1032,130 +1369,39 @@ const TemplatePreview = ({
     return (
         <div className="flex justify-center">
             <div
-                className="relative"
+                ref={containerRef}
+                className="relative bg-gray-800 rounded-lg overflow-hidden"
                 style={{
-                    width: `${displayWidth}px`,
-                    height: `${displayHeight}px`
+                    width: `${containerSize.width}px`,
+                    height: `${containerSize.height}px`
                 }}
             >
+                {/* Template image with fixed scaling */}
                 <img
-                    src={frontPreview}
+                    src={templateUrl}
                     alt="Template Preview"
-                    className="w-full h-full object-contain rounded-xl"
+                    className="w-full h-full object-contain"
+                    onLoad={() => setImageLoaded(true)}
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'contain'
+                    }}
                 />
 
-                {/* Coordinate-based overlay - ALL COORDINATES SCALED CONSISTENTLY */}
+                {/* Debug overlay - shows scaling info */}
+                {imageLoaded && (
+                    <div className="absolute top-0 left-0 right-0 bg-black bg-opacity-60 text-white text-xs p-1 text-center">
+                        📏 Fixed: {containerSize.width}×{containerSize.height}px |
+                        Scale: {scale.toFixed(3)} |
+                        Template: 1200×675px
+                    </div>
+                )}
+
+                {/* Coordinates overlay */}
                 <div className="absolute inset-0">
-                    {/* Photo placeholder - SHOW ACTUAL STUDENT PHOTO */}
-                    {coordinates.photo && (
-                        <div
-                            className="absolute rounded-lg flex items-center justify-center border-2 border-white overflow-hidden"
-                            style={{
-                                left: `${coordinates.photo.x * scale}px`,
-                                top: `${coordinates.photo.y * scale}px`,
-                                width: `${coordinates.photo.width * scale}px`,
-                                height: `${coordinates.photo.height * scale}px`,
-                                backgroundColor: studentPhoto ? 'transparent' : 'rgba(16, 185, 129, 0.5)'
-                            }}
-                        >
-                            {studentPhoto ? (
-                                <img
-                                    src={studentPhoto}
-                                    alt="Student"
-                                    className="w-full h-full object-cover rounded-xxl"
-                                    onError={(e) => {
-                                        console.error('❌ Failed to load student photo');
-                                        e.target.style.display = 'none';
-                                    }}
-                                />
-                            ) : (
-                                <i className="pi pi-user text-white text-sm"></i>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Name */}
-                    {coordinates.name && (
-                        <div
-                            className="absolute text-white font-bold bg-black bg-opacity-60 px-2 py-1 rounded text-xs whitespace-nowrap"
-                            style={{
-                                left: `${coordinates.name.x * scale}px`,
-                                top: `${coordinates.name.y * scale}px`,
-                                maxWidth: `${coordinates.name.maxWidth * scale}px`
-                            }}
-                        >
-                            {displayStudent?.name || 'Student Name'}
-                        </div>
-                    )}
-
-                    {/* Class */}
-                    {coordinates.class && (
-                        <div
-                            className="absolute text-emerald-300 bg-black bg-opacity-60 px-2 py-1 rounded text-xs whitespace-nowrap"
-                            style={{
-                                left: `${coordinates.class.x * scale}px`,
-                                top: `${coordinates.class.y * scale}px`,
-                                maxWidth: `${coordinates.class.maxWidth * scale}px`
-                            }}
-                        >
-                            {displayStudent?.class || 'Class'}
-                        </div>
-                    )}
-
-                    {/* Level */}
-                    {coordinates.level && (
-                        <div
-                            className="absolute text-emerald-300 bg-black bg-opacity-60 px-2 py-1 rounded text-xs whitespace-nowrap"
-                            style={{
-                                left: `${coordinates.level.x * scale}px`,
-                                top: `${coordinates.level.y * scale}px`,
-                                maxWidth: `${coordinates.level.maxWidth * scale}px`
-                            }}
-                        >
-                            {displayStudent?.level || 'Level'}
-                        </div>
-                    )}
-
-
-                    {/* Gender */}
-                    {coordinates.gender && (
-                        <div
-                            className="absolute text-gray-300 bg-black bg-opacity-60 px-2 py-1 rounded text-xs whitespace-nowrap"
-                            style={{
-                                left: `${coordinates.gender.x * scale}px`,
-                                top: `${coordinates.gender.y * scale}px`,
-                                maxWidth: `${coordinates.gender.maxWidth * scale}px`
-                            }}
-                        >
-                            {displayStudent?.gender || 'Gender'}
-                        </div>
-                    )}
-                    {/* Residence */}
-                    {coordinates.residence && (
-                        <div
-                            className="absolute text-gray-300 bg-black bg-opacity-60 px-2 py-1 rounded text-xs whitespace-nowrap"
-                            style={{
-                                left: `${coordinates.residence.x * scale}px`,
-                                top: `${coordinates.residence.y * scale}px`,
-                                maxWidth: `${coordinates.residence.maxWidth * scale}px`
-                            }}
-                        >
-                            {displayStudent?.residence || 'Residence'}
-                        </div>
-                    )}
-
-                    {/* Academic Year */}
-                    {coordinates.academic_year && (
-                        <div
-                            className="absolute text-gray-300 bg-black bg-opacity-60 px-2 py-1 rounded text-xs whitespace-nowrap"
-                            style={{
-                                left: `${coordinates.academic_year.x * scale}px`,
-                                top: `${coordinates.academic_year.y * scale}px`,
-                                maxWidth: `${coordinates.academic_year.maxWidth * scale}px`
-                            }}
-                        >
-                            {displayStudent?.academic_year || '2024'}
-                        </div>
+                    {Object.entries(coordinates).map(([field, coord]) =>
+                        renderCoordinate(field, coord)
                     )}
                 </div>
             </div>
@@ -1207,11 +1453,22 @@ const WorkflowStep = ({ step, title, description, active, completed, icon, onCli
 
 
 //File Upload
-const FileUploadCard = React.forwardRef(({ title, description, accept, icon, color, note }, ref) => {
+// ✅ FIXED: FileUploadCard component with working file selection
+const FileUploadCard = ({ title, description, accept, icon, color, note, onFileSelect }) => {
+    const [selectedFile, setSelectedFile] = useState(null);
+
     const colorClasses = {
         emerald: 'bg-emerald-500',
         blue: 'bg-blue-500',
         purple: 'bg-purple-500'
+    };
+
+    const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setSelectedFile(file);
+            onFileSelect(file);
+        }
     };
 
     return (
@@ -1225,23 +1482,38 @@ const FileUploadCard = React.forwardRef(({ title, description, accept, icon, col
                     <p className="text-sm text-gray-600 mt-1">{description}</p>
                     {note && <p className="text-xs text-emerald-600 mt-1">{note}</p>}
                 </div>
-                <input
-                    type="file"
-                    ref={ref}
-                    accept={accept}
-                    className="hidden"
-                    id={`file-${title}`}
-                />
-                <label
-                    htmlFor={`file-${title}`}
-                    className="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium cursor-pointer transition-colors duration-200"
-                >
-                    Choose File
-                </label>
+
+                <div>
+                    <input
+                        type="file"
+                        accept={accept}
+                        className="hidden"
+                        id={`file-${title}`}
+                        onChange={handleFileSelect}
+                    />
+
+                    <label
+                        htmlFor={`file-${title}`}
+                        className="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium cursor-pointer transition-colors duration-200"
+                    >
+                        {selectedFile ? `Change ${selectedFile.name}` : 'Choose File'}
+                    </label>
+
+                    {selectedFile && (
+                        <div className="mt-2 p-2 bg-emerald-50 rounded-lg">
+                            <p className="text-xs text-emerald-800 font-medium truncate">
+                                ✓ {selectedFile.name}
+                            </p>
+                            <p className="text-xs text-emerald-600">
+                                {(selectedFile.size / 1024).toFixed(0)} KB
+                            </p>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
-});
+};
 
 const CoordinateControl = ({ field, coordinates, onChange }) => (
     <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200">
