@@ -503,8 +503,23 @@ export const permissionAPI = {
   // Get all permissions
   getAll: () => api.get('/permissions'),
 
-  // Create multiple permissions (bulk)
-  create: (permissions) => api.post('/permissions/create', permissions),
+  // Create multiple permissions (bulk) or one
+  create: async (permissionData) => {
+    try {
+      const response = await api.post('/permissions/create', permissionData);
+
+      // ✅ Log the response for debugging
+      console.log('API Response:', {
+        data: response.data,
+        status: response.status
+      });
+
+      return response.data; // Make sure this returns the full response
+    } catch (error) {
+      console.error('Permission API Error:', error.response?.data || error.message);
+      throw error;
+    }
+  },
 
   // Get permissions by student ID
   getByStudent: (studentId) => api.get(`/permissions/student/${studentId}`),

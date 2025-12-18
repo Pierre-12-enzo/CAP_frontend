@@ -362,7 +362,7 @@ const CardGeneration = () => {
 
             // Add timeout promise for debugging
             const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('API call timeout (30s)')), 30000);
+                setTimeout(() => reject(new Error('API call timeout (1min)')), 60000);
             });
 
             const apiPromise = cardAPI.processCSVAndGenerate(formData);

@@ -99,3 +99,54 @@
 .animate-pulse-gentle {
   animation: pulse-gentle 2s ease-in-out infinite;
 }
+
+/* Print styles */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 15mm;
+  }
+  
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+  
+  .page-break {
+    page-break-after: always;
+  }
+  
+  /* Ensure the permission document prints correctly */
+  .permission-document-container {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+/* For print preview in modal */
+.print-preview-container {
+  transform: scale(0.85);
+  transform-origin: top center;
+  width: 117%; /* Compensate for scale */
+  margin-left: -8.5%;
+}
+
+@media screen and (max-width: 768px) {
+  .print-preview-container {
+    transform: scale(0.7);
+    width: 143%;
+    margin-left: -21.5%;
+  }
+}
