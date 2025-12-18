@@ -47,6 +47,18 @@ const PermissionStudio = () => {
     }
   }, [analyticsTimeRange]);
 
+  // Helper to check if any selected student has active permission
+  const checkForActivePermissions = () => {
+    return selectedStudents.some(student =>
+      activePermissions.some(p => p.student?._id === student._id || p.student === student._id)
+    );
+  };
+
+  // Add this useEffect to update when activePermissions change
+  useEffect(() => {
+    console.log('Active permissions updated:', activePermissions.length);
+  }, [activePermissions]);
+
   const fetchStudents = async () => {
     try {
       const data = await studentAPI.getStudents();
@@ -182,7 +194,20 @@ const PermissionStudio = () => {
   };
 
   // Handle create permissions
+  // In PermissionStudio.jsx, update the createPermissions function:
+
   const createPermissions = async () => {
+    // Check if any student has active permission BEFORE trying to create
+    const studentsWithActivePermission = selectedStudents.filter(student =>
+      activePermissions.some(p => p.student?._id === student._id || p.student === student._id)
+    );
+
+    if (studentsWithActivePermission.length > 0) {
+      alert(`❌ Cannot create permissions for students with active permissions:\n\n${studentsWithActivePermission.map(s => `• ${s.name}`).join('\n')
+        }\n\nPlease mark their current permissions as returned first.`);
+      return;
+    }
+
     setLoading(true);
     try {
       // Validate forms
@@ -201,11 +226,14 @@ const PermissionStudio = () => {
         return;
       }
 
-      // Prepare data
+      // Prepare data with timeout protection
       const permissionsData = selectedStudents.map(student => {
         const form = permissionForms[student._id];
         return {
           student: student._id,
+          studentName: student.name, // Include as backup
+          studentId: student.student_id,
+          studentClass: student.class,
           reason: form.reason.trim(),
           destination: form.destination.trim(),
           guardian: {
@@ -221,12 +249,25 @@ const PermissionStudio = () => {
 
       console.log('Creating permissions:', permissionsData);
 
-      // Call the API
+      // Create timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Request timeout. The server is taking too long to respond.'));
+        }, 30000); // 30 second timeout
+      });
+
+      // Call the API with timeout protection
       let result;
       if (permissionsData.length === 1) {
-        result = await permissionAPI.create(permissionsData[0]);
+        result = await Promise.race([
+          permissionAPI.create(permissionsData[0]),
+          timeoutPromise
+        ]);
       } else {
-        result = await permissionAPI.createBulk(permissionsData);
+        result = await Promise.race([
+          permissionAPI.createBulk(permissionsData),
+          timeoutPromise
+        ]);
       }
 
       console.log('Creation result:', result);
@@ -249,17 +290,83 @@ const PermissionStudio = () => {
 
         console.log('✅ Permissions created successfully:', newPermissions);
 
-        // Show success message
-        alert(`✅ Successfully created ${newPermissions.length} permission(s)!`);
+        // Show success message with auto-close
+        const successMessage = document.createElement('div');
+        successMessage.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: linear-gradient(135deg, #10b981, #059669);
+          color: white;
+          padding: 16px 24px;
+          border-radius: 12px;
+          box-shadow: 0 8px 30px rgba(16, 185, 129, 0.4);
+          z-index: 10000;
+          animation: slideIn 0.3s ease-out;
+          max-width: 400px;
+        ">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="
+              width: 40px;
+              height: 40px;
+              background: rgba(255, 255, 255, 0.2);
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 20px;
+            ">
+              ✓
+            </div>
+            <div>
+              <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">
+                Success!
+              </div>
+              <div style="font-size: 14px; opacity: 0.9;">
+                Created ${newPermissions.length} permission(s) successfully!
+              </div>
+            </div>
+          </div>
+        </div>
+        <style>
+          @keyframes slideIn {
+            from {
+              transform: translateX(100%);
+              opacity: 0;
+            }
+            to {
+              transform: translateX(0);
+              opacity: 1;
+            }
+          }
+        </style>
+      `;
+
+        document.body.appendChild(successMessage);
+
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+          if (successMessage.parentNode) {
+            successMessage.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => {
+              if (successMessage.parentNode) {
+                document.body.removeChild(successMessage);
+              }
+            }, 300);
+          }
+        }, 3000);
 
         // Set created permissions for printing
         setCreatedPermissions(newPermissions);
         setPrintMode(true);
         setShowPrintModal(true);
 
-        // Refresh data
-        fetchPermissions();
-        fetchAnalytics();
+        // Refresh data in background
+        setTimeout(() => {
+          fetchPermissions();
+          fetchAnalytics();
+        }, 1000);
 
       } else {
         throw new Error(result?.message || result?.error || 'Failed to create permissions');
@@ -268,23 +375,92 @@ const PermissionStudio = () => {
     } catch (error) {
       console.error('Error creating permissions:', error);
 
-      let errorMessage = 'Failed to create permissions: ';
+      // Check if it's a timeout error
+      if (error.message.includes('timeout') || error.message.includes('Timeout')) {
+        // Show user-friendly timeout message
+        const timeoutMessage = document.createElement('div');
+        timeoutMessage.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: linear-gradient(135deg, #f59e0b, #d97706);
+          color: white;
+          padding: 16px 24px;
+          border-radius: 12px;
+          box-shadow: 0 8px 30px rgba(245, 158, 11, 0.4);
+          z-index: 10000;
+          animation: slideIn 0.3s ease-out;
+          max-width: 400px;
+        ">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="
+              width: 40px;
+              height: 40px;
+              background: rgba(255, 255, 255, 0.2);
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 20px;
+            ">
+              ⏱️
+            </div>
+            <div>
+              <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">
+                Processing...
+              </div>
+              <div style="font-size: 14px; opacity: 0.9;">
+                Request timed out. Permissions may still be created.<br>
+                <button onclick="location.reload()" style="
+                  margin-top: 8px;
+                  background: rgba(255, 255, 255, 0.2);
+                  border: none;
+                  color: white;
+                  padding: 6px 12px;
+                  border-radius: 6px;
+                  cursor: pointer;
+                  font-size: 12px;
+                ">
+                  ↻ Refresh to check
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
 
-      if (error.response?.data) {
-        if (error.response.data.details) {
-          errorMessage += error.response.data.details.join(', ');
-        } else if (error.response.data.error) {
-          errorMessage += error.response.data.error;
-        } else if (error.response.data.message) {
-          errorMessage += error.response.data.message;
-        } else {
-          errorMessage += JSON.stringify(error.response.data);
-        }
+        document.body.appendChild(timeoutMessage);
+
+        // Auto-refresh after 5 seconds
+        setTimeout(() => {
+          if (timeoutMessage.parentNode) {
+            document.body.removeChild(timeoutMessage);
+          }
+          fetchPermissions(); // Refresh to check if permissions were created
+          fetchAnalytics();
+        }, 5000);
+
       } else {
-        errorMessage += error.message;
-      }
+        // Regular error handling
+        let errorMessage = 'Failed to create permissions: ';
 
-      alert(`❌ ${errorMessage}`);
+        if (error.response?.data) {
+          if (error.response.data.details) {
+            errorMessage += error.response.data.details.join(', ');
+          } else if (error.response.data.error) {
+            errorMessage += error.response.data.error;
+          } else if (error.response.data.message) {
+            errorMessage += error.response.data.message;
+          } else {
+            errorMessage += JSON.stringify(error.response.data);
+          }
+        } else {
+          errorMessage += error.message;
+        }
+
+        alert(`❌ ${errorMessage}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -321,400 +497,453 @@ const PermissionStudio = () => {
 
   // REACT-TO-PRINT CONFIGURATION - FIXED
   const handlePrintNow = () => {
-  console.log('🖨️ Triggering print...');
-  
-  if (createdPermissions.length === 0) {
-    alert('No permission documents to print.');
-    return;
-  }
-  
-  // Create a print window
-  const printWindow = window.open('', '_blank', 'width=1100,height=700,scrollbars=yes');
-  
-  if (!printWindow) {
-    alert('Please allow pop-ups to print the document.');
-    return;
-  }
-  
-  // Create HTML content with COMPACT design for one page
-  const printContent = createdPermissions.map(permission => {
-    const formatDate = (dateString) => {
-      if (!dateString) return 'N/A';
-      try {
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) return 'Invalid Date';
-        return date.toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        });
-      } catch (error) {
-        return 'Invalid Date';
-      }
-    };
-    
-    return `
+    console.log('🖨️ Triggering print...');
+
+    if (createdPermissions.length === 0) {
+      alert('No permission documents to print.');
+      return;
+    }
+
+    // Create a print window
+    const printWindow = window.open('', '_blank', 'width=1100,height=700,scrollbars=yes');
+
+    if (!printWindow) {
+      alert('Please allow pop-ups to print the document.');
+      return;
+    }
+
+    // Create HTML content with ULTRA-COMPACT design
+    const printContent = createdPermissions.map((permission, index) => {
+      const formatDate = (dateString) => {
+        if (!dateString) return 'N/A';
+        try {
+          const date = new Date(dateString);
+          if (isNaN(date.getTime())) return 'Invalid Date';
+          return date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          });
+        } catch (error) {
+          return 'Invalid Date';
+        }
+      };
+
+      const formatTime = (dateString) => {
+        if (!dateString) return '';
+        try {
+          const date = new Date(dateString);
+          if (isNaN(date.getTime())) return '';
+          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (error) {
+          return '';
+        }
+      };
+
+      return `
       <div class="permission-document" style="
         background: white;
         color: #1f2937;
-        padding: 12mm;
+        padding: 8mm 10mm;
         margin: 0 auto;
         width: 100%;
         height: 100%;
         box-sizing: border-box;
-        page-break-after: ${createdPermissions.length > 1 ? 'always' : 'auto'};
+        font-family: 'Segoe UI', Arial, sans-serif;
+        ${index < createdPermissions.length - 1 ? 'page-break-after: always;' : ''}
       ">
-        <!-- Compact Border -->
+        <!-- Ultra-Compact Border -->
         <div style="
-          border: 2px solid #059669;
-          border-radius: 8px;
-          padding: 10mm;
+          border: 1.5px solid #059669;
+          border-radius: 6px;
+          padding: 8mm;
           position: relative;
           height: 100%;
           box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
         ">
           
-          <!-- Compact School Header -->
+          <!-- SUPER COMPACT Header -->
           <div style="
             text-align: center;
-            margin-bottom: 5mm;
+            margin-bottom: 4mm;
             border-bottom: 1px solid #a7f3d0;
-            padding-bottom: 3mm;
+            padding-bottom: 2mm;
+            flex-shrink: 0;
           ">
             <h1 style="
-              font-size: 20pt;
+              font-size: 18pt;
               font-weight: bold;
               color: #065f46;
-              margin: 0 0 2mm 0;
-              line-height: 1.2;
+              margin: 0 0 1mm 0;
+              line-height: 1;
+              letter-spacing: 0.5px;
             ">
               OFFICIAL PERMISSION SLIP
             </h1>
             <div style="
-              width: 60mm;
-              height: 1px;
+              width: 50mm;
+              height: 0.5px;
               background: linear-gradient(to right, #34d399, #22d3ee);
-              margin: 0 auto 2mm;
+              margin: 0 auto 1mm;
             "></div>
-            <p style="font-size: 10pt; color: #4b5563; margin: 0;">
+            <p style="font-size: 9pt; color: #4b5563; margin: 0; font-weight: 500;">
               School Authorization Document
             </p>
           </div>
 
-          <!-- COMPACT Student Information Grid -->
+          <!-- MAIN CONTENT - 2 columns with minimal padding -->
           <div style="
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 6mm;
-            margin-bottom: 5mm;
+            gap: 5mm;
+            margin-bottom: 4mm;
+            flex: 1;
+            min-height: 0;
           ">
-            <!-- Student Column -->
-            <div>
+            <!-- LEFT COLUMN: Student & Guardian -->
+            <div style="display: flex; flex-direction: column; gap: 4mm;">
+              <!-- Student Info - COMPACT -->
               <div style="
                 background: #f0f9ff;
                 border: 1px solid #bae6fd;
                 border-radius: 4px;
-                padding: 3mm;
-                margin-bottom: 4mm;
+                padding: 2.5mm;
+                flex: 1;
               ">
                 <div style="
-                  font-size: 9pt;
-                  font-weight: 600;
+                  font-size: 8.5pt;
+                  font-weight: 700;
                   color: #0369a1;
                   text-transform: uppercase;
-                  letter-spacing: 0.5px;
-                  margin-bottom: 2mm;
-                  border-bottom: 1px dashed #bae6fd;
+                  letter-spacing: 0.3px;
+                  margin-bottom: 1.5mm;
                   padding-bottom: 1mm;
+                  border-bottom: 1px dashed #bae6fd;
                 ">
-                  Student Information
+                  <i style="font-style: normal;">👤</i> STUDENT INFORMATION
                 </div>
-                <table style="width: 100%; font-size: 9pt;">
+                <table style="width: 100%; font-size: 8.5pt; border-collapse: collapse;">
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500; width: 40%;">Full Name:</td>
-                    <td style="padding: 1mm 0; font-weight: 600;">${permission.student?.name || 'N/A'}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600; width: 38%; vertical-align: top;">Full Name:</td>
+                    <td style="padding: 0.8mm 0; font-weight: 700; color: #1e40af;">${permission.student?.name || 'N/A'}</td>
                   </tr>
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Student ID:</td>
-                    <td style="padding: 1mm 0; font-family: monospace;">${permission.student?.student_id || 'N/A'}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Student ID:</td>
+                    <td style="padding: 0.8mm 0; font-family: 'Courier New', monospace; font-weight: 600;">
+                      ${permission.student?.student_id || 'N/A'}
+                    </td>
                   </tr>
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Class:</td>
-                    <td style="padding: 1mm 0;">${permission.student?.class || 'N/A'}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Class:</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600;">${permission.student?.class || 'N/A'}</td>
                   </tr>
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Parent Phone:</td>
-                    <td style="padding: 1mm 0;">${permission.student?.parent_phone || 'N/A'}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Parent Phone:</td>
+                    <td style="padding: 0.8mm 0;">${permission.student?.parent_phone || 'N/A'}</td>
                   </tr>
                 </table>
               </div>
               
-              <!-- Guardian Information -->
+              <!-- Guardian Info - COMPACT -->
               <div style="
                 background: #fef2f2;
                 border: 1px solid #fecaca;
                 border-radius: 4px;
-                padding: 3mm;
+                padding: 2.5mm;
+                flex: 1;
               ">
                 <div style="
-                  font-size: 9pt;
-                  font-weight: 600;
+                  font-size: 8.5pt;
+                  font-weight: 700;
                   color: #dc2626;
                   text-transform: uppercase;
-                  letter-spacing: 0.5px;
-                  margin-bottom: 2mm;
-                  border-bottom: 1px dashed #fecaca;
+                  letter-spacing: 0.3px;
+                  margin-bottom: 1.5mm;
                   padding-bottom: 1mm;
+                  border-bottom: 1px dashed #fecaca;
                 ">
-                  Guardian Information
+                  <i style="font-style: normal;">🛡️</i> GUARDIAN INFORMATION
                 </div>
-                <table style="width: 100%; font-size: 9pt;">
+                <table style="width: 100%; font-size: 8.5pt; border-collapse: collapse;">
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500; width: 40%;">Name:</td>
-                    <td style="padding: 1mm 0; font-weight: 600;">${permission.guardian?.name || 'N/A'}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600; width: 38%;">Name:</td>
+                    <td style="padding: 0.8mm 0; font-weight: 700;">${permission.guardian?.name || 'N/A'}</td>
                   </tr>
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Relationship:</td>
-                    <td style="padding: 1mm 0;">${permission.guardian?.relationship || 'N/A'}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Relationship:</td>
+                    <td style="padding: 0.8mm 0;">${permission.guardian?.relationship || 'N/A'}</td>
                   </tr>
                   ${permission.guardian?.phone ? `
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Phone:</td>
-                    <td style="padding: 1mm 0; color: #1d4ed8;">${permission.guardian.phone}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Phone:</td>
+                    <td style="padding: 0.8mm 0; color: #1d4ed8; font-weight: 600;">${permission.guardian.phone}</td>
                   </tr>
                   ` : ''}
                 </table>
               </div>
             </div>
 
-            <!-- Permission Details Column -->
-            <div>
+            <!-- RIGHT COLUMN: Permission Details & Purpose -->
+            <div style="display: flex; flex-direction: column; gap: 4mm;">
+              <!-- Permission Details - COMPACT -->
               <div style="
                 background: #f0fdf4;
                 border: 1px solid #bbf7d0;
                 border-radius: 4px;
-                padding: 3mm;
-                margin-bottom: 4mm;
-                height: calc(50% - 2mm);
-                box-sizing: border-box;
+                padding: 2.5mm;
+                flex: 1;
               ">
                 <div style="
-                  font-size: 9pt;
-                  font-weight: 600;
+                  font-size: 8.5pt;
+                  font-weight: 700;
                   color: #059669;
                   text-transform: uppercase;
-                  letter-spacing: 0.5px;
-                  margin-bottom: 2mm;
-                  border-bottom: 1px dashed #bbf7d0;
+                  letter-spacing: 0.3px;
+                  margin-bottom: 1.5mm;
                   padding-bottom: 1mm;
+                  border-bottom: 1px dashed #bbf7d0;
                 ">
-                  Permission Details
+                  <i style="font-style: normal;">📋</i> PERMISSION DETAILS
                 </div>
-                <table style="width: 100%; font-size: 9pt;">
+                <table style="width: 100%; font-size: 8.5pt; border-collapse: collapse;">
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500; width: 45%;">Permission #:</td>
-                    <td style="padding: 1mm 0; font-family: monospace; font-weight: 600; color: #065f46;">
+                    <td style="padding: 0.8mm 0; font-weight: 600; width: 42%;">Permission #:</td>
+                    <td style="padding: 0.8mm 0; font-family: 'Courier New', monospace; font-weight: 700; color: #065f46;">
                       ${permission.permissionNumber || 'N/A'}
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Issue Date:</td>
-                    <td style="padding: 1mm 0;">${formatDate(permission.createdAt)}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Issue Date:</td>
+                    <td style="padding: 0.8mm 0;">${formatDate(permission.createdAt)}</td>
                   </tr>
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Departure:</td>
-                    <td style="padding: 1mm 0;">${formatDate(permission.departure)}</td>
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Departure:</td>
+                    <td style="padding: 0.8mm 0;">${formatDate(permission.departure)}</td>
                   </tr>
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Return Date:</td>
-                    <td style="padding: 1mm 0; font-weight: 600; color: #059669;">
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Return Date:</td>
+                    <td style="padding: 0.8mm 0; font-weight: 700; color: #059669;">
                       ${formatDate(permission.returnDate)}
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding: 1mm 0; font-weight: 500;">Status:</td>
-                    <td style="padding: 1mm 0; font-weight: 600; color: ${permission.status === 'approved' ? '#059669' : '#d97706'}">
+                    <td style="padding: 0.8mm 0; font-weight: 600;">Status:</td>
+                    <td style="padding: 0.8mm 0; font-weight: 700; color: ${permission.status === 'approved' ? '#059669' : '#d97706'}">
                       ${permission.status?.toUpperCase() || 'PENDING'}
                     </td>
                   </tr>
                 </table>
               </div>
               
-              <!-- Purpose & Destination -->
+              <!-- Purpose & Destination - COMPACT -->
               <div style="
                 background: #fef3c7;
                 border: 1px solid #fde68a;
                 border-radius: 4px;
-                padding: 3mm;
-                height: calc(50% - 2mm);
-                box-sizing: border-box;
+                padding: 2.5mm;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
               ">
                 <div style="
-                  font-size: 9pt;
-                  font-weight: 600;
+                  font-size: 8.5pt;
+                  font-weight: 700;
                   color: #d97706;
                   text-transform: uppercase;
-                  letter-spacing: 0.5px;
-                  margin-bottom: 2mm;
-                  border-bottom: 1px dashed #fde68a;
+                  letter-spacing: 0.3px;
+                  margin-bottom: 1.5mm;
                   padding-bottom: 1mm;
+                  border-bottom: 1px dashed #fde68a;
                 ">
-                  Purpose & Destination
+                  <i style="font-style: normal;">🎯</i> PURPOSE & DESTINATION
                 </div>
-                <div style="margin-bottom: 3mm;">
-                  <div style="font-size: 8pt; font-weight: 500; color: #78350f; margin-bottom: 1mm;">
-                    Purpose:
+                
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 2mm;">
+                  <div style="flex: 1;">
+                    <div style="font-size: 7.5pt; font-weight: 600; color: #78350f; margin-bottom: 0.5mm;">
+                      REASON FOR PERMISSION:
+                    </div>
+                    <div style="
+                      background: white;
+                      border: 1px solid #fbbf24;
+                      border-radius: 3px;
+                      padding: 1.5mm;
+                      font-size: 8.5pt;
+                      font-weight: 500;
+                      min-height: 12mm;
+                      line-height: 1.3;
+                    ">
+                      ${permission.reason || 'No reason provided'}
+                    </div>
                   </div>
-                  <div style="
-                    background: white;
-                    border: 1px solid #fbbf24;
-                    border-radius: 3px;
-                    padding: 2mm;
-                    font-size: 9pt;
-                    font-weight: 500;
-                    min-height: 15mm;
-                  ">
-                    ${permission.reason || 'No reason provided'}
-                  </div>
-                </div>
-                <div>
-                  <div style="font-size: 8pt; font-weight: 500; color: #78350f; margin-bottom: 1mm;">
-                    Destination:
-                  </div>
-                  <div style="
-                    background: white;
-                    border: 1px solid #fbbf24;
-                    border-radius: 3px;
-                    padding: 2mm;
-                    font-size: 9pt;
-                    font-weight: 500;
-                    min-height: 10mm;
-                  ">
-                    ${permission.destination || 'No destination provided'}
+                  
+                  <div style="flex: 1;">
+                    <div style="font-size: 7.5pt; font-weight: 600; color: #78350f; margin-bottom: 0.5mm;">
+                      DESTINATION ADDRESS:
+                    </div>
+                    <div style="
+                      background: white;
+                      border: 1px solid #fbbf24;
+                      border-radius: 3px;
+                      padding: 1.5mm;
+                      font-size: 8.5pt;
+                      font-weight: 500;
+                      min-height: 8mm;
+                      line-height: 1.3;
+                    ">
+                      ${permission.destination || 'No destination provided'}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- COMPACT Bottom Section - Status & Signatures -->
+          <!-- BOTTOM SECTION - ULTRA COMPACT (2mm padding) -->
           <div style="
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            gap: 4mm;
-            margin-top: 4mm;
+            gap: 3mm;
+            margin-top: 2mm;
+            flex-shrink: 0;
+            padding-top: 2mm;
+            border-top: 1px dashed #d1d5db;
           ">
-            <!-- SMS Status -->
+            <!-- SMS Status - TINY -->
             <div style="
-              background: #fce7f3;
-              border: 1px solid #fbcfe8;
-              border-radius: 4px;
-              padding: 3mm;
+              background: linear-gradient(135deg, #fce7f3, #fbcfe8);
+              border: 1px solid #f9a8d4;
+              border-radius: 3px;
+              padding: 2mm;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
             ">
               <div style="
-                font-size: 8pt;
-                font-weight: 600;
+                font-size: 7.5pt;
+                font-weight: 700;
                 color: #be185d;
                 text-transform: uppercase;
-                letter-spacing: 0.5px;
-                margin-bottom: 2mm;
+                letter-spacing: 0.2px;
+                margin-bottom: 1mm;
               ">
-                Notification Status
+                📱 NOTIFICATION
               </div>
-              <div style="display: flex; align-items: center; gap: 2mm;">
+              <div style="display: flex; align-items: center; gap: 1.5mm; margin-bottom: 0.5mm;">
                 <div style="
-                  width: 6px;
-                  height: 6px;
+                  width: 5px;
+                  height: 5px;
                   border-radius: 50%;
-                  background: ${permission.smsNotifications?.permissionCreated?.sent ? '#10b981' : '#d1d5db'};
+                  background: ${permission.smsNotifications?.permissionCreated?.sent ? '#10b981' : '#9ca3af'};
                 "></div>
-                <span style="font-size: 8pt;">
-                  ${permission.smsNotifications?.permissionCreated?.sent ? 'SMS Sent ✓' : 'SMS Not Sent'}
+                <span style="font-size: 7.5pt; font-weight: 600;">
+                  ${permission.smsNotifications?.permissionCreated?.sent ? 'SMS SENT' : 'SMS PENDING'}
                 </span>
               </div>
               ${permission.smsNotifications?.permissionCreated?.sentAt ? `
-              <div style="font-size: 7pt; color: #6b7280; margin-top: 1mm;">
-                Sent: ${formatDate(permission.smsNotifications.permissionCreated.sentAt)}
+              <div style="font-size: 6.5pt; color: #6b7280; line-height: 1.2;">
+                ${formatDate(permission.smsNotifications.permissionCreated.sentAt)} ${formatTime(permission.smsNotifications.permissionCreated.sentAt)}
               </div>
               ` : ''}
             </div>
 
-            <!-- Guardian Signature -->
+            <!-- Guardian Signature - TINY -->
             <div style="
               border: 1px solid #d1d5db;
-              border-radius: 4px;
-              padding: 3mm;
+              border-radius: 3px;
+              padding: 2mm;
               text-align: center;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
             ">
               <div style="
-                font-size: 8pt;
-                font-weight: 600;
+                font-size: 7.5pt;
+                font-weight: 700;
                 color: #4b5563;
                 text-transform: uppercase;
-                margin-bottom: 4mm;
+                letter-spacing: 0.2px;
+                margin-bottom: 1.5mm;
               ">
-                Guardian's Signature
+                ✍️ GUARDIAN SIGNATURE
               </div>
               <div style="
-                height: 15mm;
-                border-bottom: 1px solid #d1d5db;
-                margin-bottom: 2mm;
+                height: 12mm;
+                border-bottom: 1px solid #9ca3af;
+                margin-bottom: 1mm;
               "></div>
-              <div style="font-size: 7pt; color: #6b7280;">
-                ${permission.guardian?.name || 'N/A'}
+              <div style="font-size: 6.5pt; color: #6b7280; font-weight: 500; line-height: 1.2;">
+                ${permission.guardian?.name || 'Guardian Name'}
+              </div>
+              <div style="font-size: 6pt; color: #9ca3af; margin-top: 0.5mm;">
+                Date: ${formatDate(permission.departure)}
               </div>
             </div>
 
-            <!-- School Signature -->
+            <!-- School Signature - TINY -->
             <div style="
               border: 1px solid #d1d5db;
-              border-radius: 4px;
-              padding: 3mm;
+              border-radius: 3px;
+              padding: 2mm;
               text-align: center;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
             ">
               <div style="
-                font-size: 8pt;
-                font-weight: 600;
+                font-size: 7.5pt;
+                font-weight: 700;
                 color: #4b5563;
                 text-transform: uppercase;
-                margin-bottom: 4mm;
+                letter-spacing: 0.2px;
+                margin-bottom: 1.5mm;
               ">
-                School Authority
+                🏫 SCHOOL AUTHORITY
               </div>
               <div style="
-                height: 15mm;
-                border-bottom: 1px solid #d1d5db;
-                margin-bottom: 2mm;
+                height: 12mm;
+                border-bottom: 1px solid #9ca3af;
+                margin-bottom: 1mm;
               "></div>
-              <div style="font-size: 7pt; color: #6b7280;">
+              <div style="font-size: 6.5pt; color: #6b7280; font-weight: 500; line-height: 1.2;">
                 Approved by: ${user?.firstName || ''} ${user?.lastName || ''}
               </div>
-              <div style="font-size: 7pt; color: #6b7280; margin-top: 1mm;">
+              <div style="font-size: 6.5pt; color: #6b7280; margin-top: 0.5mm;">
                 Date: ${formatDate(permission.createdAt)}
+              </div>
+              <div style="font-size: 6pt; color: #9ca3af; margin-top: 0.5mm;">
+                Time: ${formatTime(permission.createdAt)}
               </div>
             </div>
           </div>
 
-          <!-- Compact Security Footer -->
+          <!-- MICRO Footer -->
           <div style="
-            margin-top: 4mm;
-            padding-top: 2mm;
-            border-top: 1px solid #e5e7eb;
+            margin-top: 2mm;
+            padding-top: 1mm;
+            border-top: 0.5px solid #e5e7eb;
             text-align: center;
-            font-size: 6pt;
+            font-size: 5.5pt;
             color: #6b7280;
-            line-height: 1.3;
+            line-height: 1.2;
+            flex-shrink: 0;
           ">
-            <div>This is an official school document. Unauthorized duplication is prohibited.</div>
-            <div>Document ID: ${permission._id} • Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+            <div style="margin-bottom: 0.5mm; font-weight: 500;">
+              ⚠️ Official School Document • Unauthorized Duplication Prohibited
+            </div>
+            <div>
+              ID: ${permission._id?.substring(0, 8) || 'N/A'} • Generated: ${formatDate(permission.createdAt)} ${formatTime(permission.createdAt)}
+            </div>
           </div>
         </div>
       </div>
     `;
-  }).join('');
+    }).join('');
 
-  // Create the complete HTML document
-  const printHTML = `
+    // Create the complete HTML document
+    const printHTML = `
     <!DOCTYPE html>
     <html>
     <head>
@@ -725,26 +954,19 @@ const PermissionStudio = () => {
         @media print {
           @page {
             size: A4 landscape;
-            margin: 10mm;
+            margin: 8mm 10mm;
           }
           
           body {
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            font-family: 'Segoe UI', Arial, sans-serif !important;
           }
           
           .no-print {
-            display: none !important;
-          }
-          
-          .print-instructions {
-            display: none !important;
-          }
-          
-          .print-controls {
             display: none !important;
           }
           
@@ -752,110 +974,121 @@ const PermissionStudio = () => {
             page-break-after: always;
             page-break-inside: avoid;
             break-inside: avoid;
-            width: 100%;
-            height: 100%;
+            width: 100% !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            overflow: hidden !important;
           }
           
-          /* Ensure tables don't break across pages */
-          table {
-            page-break-inside: avoid;
-          }
-          
-          /* Force one document per page */
+          /* Force one page per document */
           .permission-document:last-child {
-            page-break-after: auto;
+            page-break-after: auto !important;
+          }
+          
+          /* Prevent text from being cut */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
         }
         
         @media screen {
           body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f3f4f6;
-            color: #111827;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
             padding: 0;
             margin: 0;
+            overflow-x: hidden;
           }
           
           .print-controls {
             position: fixed;
-            top: 15px;
-            right: 15px;
-            z-index: 1000;
+            top: 12px;
+            right: 12px;
+            z-index: 10000;
             display: flex;
             gap: 8px;
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(4px);
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
           }
           
           .print-btn, .close-btn {
-            padding: 10px 20px;
+            padding: 9px 18px;
             border: none;
-            border-radius: 6px;
-            font-size: 14px;
+            border-radius: 8px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             align-items: center;
             gap: 6px;
+            white-space: nowrap;
           }
           
           .print-btn {
-            background: linear-gradient(135deg, #10b981, #059669);
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             color: white;
+            box-shadow: 0 2px 10px rgba(16, 185, 129, 0.3);
           }
           
           .print-btn:hover {
-            background: linear-gradient(135deg, #059669, #047857);
-            transform: translateY(-1px);
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
           }
           
           .close-btn {
-            background: #6b7280;
+            background: #64748b;
             color: white;
+            box-shadow: 0 2px 10px rgba(100, 116, 139, 0.3);
           }
           
           .close-btn:hover {
-            background: #4b5563;
-            transform: translateY(-1px);
+            background: #475569;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(100, 116, 139, 0.4);
           }
           
           .print-instructions {
             background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 70px auto 30px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 70px auto 25px;
             max-width: 800px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
           }
           
           .print-instructions h3 {
-            color: #1f2937;
-            margin-bottom: 12px;
+            color: #0f172a;
+            margin: 0 0 14px 0;
             font-size: 18px;
+            font-weight: 700;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
           }
           
           .print-instructions ul {
             list-style: none;
-            padding-left: 0;
+            padding: 0;
             margin: 0;
           }
           
           .print-instructions li {
             padding: 6px 0;
-            color: #4b5563;
+            color: #475569;
+            font-size: 14px;
             display: flex;
             align-items: flex-start;
-            gap: 8px;
-            font-size: 14px;
+            gap: 10px;
+            line-height: 1.5;
           }
           
           .print-instructions li:before {
@@ -863,91 +1096,101 @@ const PermissionStudio = () => {
             color: #10b981;
             font-weight: bold;
             flex-shrink: 0;
-            font-size: 12px;
+            font-size: 13px;
             margin-top: 1px;
           }
           
-          .documents-preview {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px auto;
-            max-width: 800px;
-          }
-          
-          .preview-info {
-            background: #f0f9ff;
-            border: 1px solid #bae6fd;
-            border-radius: 6px;
-            padding: 15px;
-            margin-bottom: 20px;
+          .documents-container {
+            margin: 25px auto;
+            max-width: 900px;
+            padding: 0 20px;
           }
           
           .page-counter {
             position: fixed;
             bottom: 15px;
             right: 15px;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(15, 23, 42, 0.9);
             color: white;
-            padding: 8px 12px;
+            padding: 8px 16px;
             border-radius: 20px;
             font-size: 12px;
-            z-index: 1000;
-          }
-        }
-        
-        /* Document container for screen preview */
-        .documents-container {
-          margin: 20px auto;
-          max-width: 900px;
-        }
-        
-        /* Scale down for screen preview */
-        .permission-document {
-          transform: scale(0.85);
-          transform-origin: top center;
-          margin-bottom: -40mm;
-        }
-        
-        @media screen and (max-width: 1024px) {
-          .permission-document {
-            transform: scale(0.75);
-          }
-        }
-        
-        @media screen and (max-width: 768px) {
-          .permission-document {
-            transform: scale(0.65);
+            font-weight: 500;
+            z-index: 10000;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
           }
           
-          .print-controls {
-            flex-direction: column;
-            top: 10px;
-            right: 10px;
+          /* Scale preview for screen */
+          .permission-document {
+            transform: scale(0.8);
+            transform-origin: top center;
+            margin: 0 auto 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border-radius: 8px;
+            overflow: hidden;
+          }
+          
+          @media screen and (max-width: 1200px) {
+            .permission-document {
+              transform: scale(0.75);
+            }
+          }
+          
+          @media screen and (max-width: 992px) {
+            .permission-document {
+              transform: scale(0.7);
+            }
+            
+            .documents-container {
+              padding: 0 10px;
+            }
+          }
+          
+          @media screen and (max-width: 768px) {
+            .permission-document {
+              transform: scale(0.65);
+            }
+            
+            .print-controls {
+              flex-direction: column;
+              top: 10px;
+              right: 10px;
+            }
+            
+            .print-instructions {
+              margin: 100px 15px 20px;
+              padding: 16px;
+            }
+          }
+          
+          @media screen and (max-width: 480px) {
+            .permission-document {
+              transform: scale(0.55);
+            }
           }
         }
       </style>
     </head>
     <body>
       <div class="print-controls no-print">
-        <button class="print-btn" onclick="window.print()">
-          🖨️ Print ${createdPermissions.length > 1 ? 'All' : ''}
+        <button class="print-btn" onclick="window.print()" title="Open Print Dialog">
+          🖨️ Print All (${createdPermissions.length})
         </button>
-        <button class="close-btn" onclick="window.close()">
+        <button class="close-btn" onclick="window.close()" title="Close Window">
           ✕ Close
         </button>
       </div>
       
       <div class="print-instructions no-print">
-        <h3>📄 Print Instructions</h3>
+        <h3>📄 Ready to Print</h3>
         <ul>
-          <li>Each permission document is designed to fit on one A4 landscape page</li>
-          <li>Click "Print" button above to open print dialog</li>
-          <li>Use <strong>Landscape</strong> orientation (already set)</li>
-          <li>Select "Save as PDF" for digital copies</li>
-          <li>Enable "Background graphics" for colors</li>
-          <li>Margins are optimized at 10mm</li>
+          <li>Each permission is optimized to fit on <strong>one A4 landscape page</strong></li>
+          <li>Click "Print All" above or use <strong>Ctrl+P (Cmd+P on Mac)</strong></li>
+          <li><strong>Landscape orientation</strong> is automatically selected</li>
+          <li>For best results: enable <strong>"Background Graphics"</strong> in print settings</li>
+          <li>To save digitally: choose <strong>"Save as PDF"</strong> as printer</li>
+          ${createdPermissions.length > 1 ? `<li>You have <strong>${createdPermissions.length} document(s)</strong> to print</li>` : ''}
         </ul>
       </div>
       
@@ -957,37 +1200,44 @@ const PermissionStudio = () => {
       
       ${createdPermissions.length > 1 ? `
       <div class="page-counter no-print">
-        ${createdPermissions.length} document(s) • ${createdPermissions.length} page(s)
+        📄 ${createdPermissions.length} Document${createdPermissions.length > 1 ? 's' : ''} • ${createdPermissions.length} Page${createdPermissions.length > 1 ? 's' : ''}
       </div>
       ` : ''}
       
       <script>
-        // Focus the window
+        // Focus window for better UX
         setTimeout(() => {
           window.focus();
-        }, 300);
+          // Scroll to first document
+          window.scrollTo(0, 0);
+        }, 200);
         
-        // Optional: Auto-print after 1 second (uncomment if needed)
+        // Optional: Uncomment for auto-print
         // setTimeout(() => {
+        //   console.log('Auto-printing...');
         //   window.print();
-        // }, 1000);
+        // }, 1500);
         
         // Close window after printing
+        let hasPrinted = false;
         window.onafterprint = function() {
-          setTimeout(() => {
-            window.close();
-          }, 500);
+          if (!hasPrinted) {
+            hasPrinted = true;
+            setTimeout(() => {
+              window.close();
+            }, 800);
+          }
         };
       </script>
     </body>
     </html>
   `;
 
-  // Write to the new window
-  printWindow.document.write(printHTML);
-  printWindow.document.close();
-  printWindow.focus();
-};
+    // Write to the new window
+    printWindow.document.write(printHTML);
+    printWindow.document.close();
+    printWindow.focus();
+  };
 
   const handleOpenPrintModal = () => {
     setShowPrintModal(true);
@@ -1188,6 +1438,7 @@ const PermissionStudio = () => {
               ))}
             </div>
 
+
             {/* Action Buttons */}
             <div className="flex justify-end space-x-4 mt-8 pt-6 border-t border-gray-700">
               <button
@@ -1199,23 +1450,80 @@ const PermissionStudio = () => {
               >
                 Cancel
               </button>
-              <button
-                onClick={createPermissions}
-                disabled={loading || selectedStudents.length === 0}
-                className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-              >
-                {loading ? (
-                  <>
-                    <i className="pi pi-spin pi-spinner"></i>
-                    <span>Creating...</span>
-                  </>
-                ) : (
-                  <>
-                    <i className="pi pi-save"></i>
-                    <span>Create Permissions ({selectedStudents.length})</span>
-                  </>
-                )}
-              </button>
+
+              {/* Check if any selected student has active permission */}
+              {(() => {
+                const hasActivePermissionStudent = selectedStudents.some(student =>
+                  activePermissions.some(p => p.student?._id === student._id || p.student === student._id)
+                );
+
+                const isFormValid = selectedStudents.every(student => {
+                  const form = permissionForms[student._id];
+                  return form?.reason?.trim() &&
+                    form?.destination?.trim() &&
+                    form?.guardian?.name?.trim() &&
+                    form?.returnDate;
+                });
+
+                const isDisabled = loading ||
+                  selectedStudents.length === 0 ||
+                  !isFormValid ||
+                  hasActivePermissionStudent;
+
+                let tooltipText = '';
+                if (selectedStudents.length === 0) {
+                  tooltipText = 'Please select at least one student';
+                } else if (!isFormValid) {
+                  tooltipText = 'Please fill all required fields';
+                } else if (hasActivePermissionStudent) {
+                  tooltipText = 'Some students have active permissions';
+                }
+
+                return (
+                  <div className="relative group">
+                    <button
+                      onClick={createPermissions}
+                      disabled={isDisabled}
+                      className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 relative"
+                    >
+                      {loading ? (
+                        <>
+                          <i className="pi pi-spin pi-spinner"></i>
+                          <span>Creating...</span>
+                        </>
+                      ) : (
+                        <>
+                          {hasActivePermissionStudent ? (
+                            <i className="pi pi-exclamation-triangle"></i>
+                          ) : (
+                            <i className="pi pi-save"></i>
+                          )}
+                          <span>
+                            {hasActivePermissionStudent ? 'Cannot Create' : `Create Permissions (${selectedStudents.length})`}
+                          </span>
+                        </>
+                      )}
+                    </button>
+
+                    {tooltipText && (
+                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block z-50">
+                        <div className="bg-gray-900 text-white text-xs rounded py-2 px-3 whitespace-nowrap">
+                          <div className="absolute bottom-0 right-3 -mb-1 w-2 h-2 bg-gray-900 transform rotate-45"></div>
+                          {tooltipText}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Active permission warning badge */}
+                    {hasActivePermissionStudent && (
+                      <div className="absolute -top-2 -right-2 bg-gradient-to-r from-red-600 to-red-500 text-white text-xs font-semibold px-2 py-1 rounded-full shadow-lg flex items-center space-x-1 z-10">
+                        <i className="pi pi-exclamation-triangle text-xs"></i>
+                        <span>Active Permission</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1540,14 +1848,26 @@ const AnalyticsDashboard = ({ analytics, loadingAnalytics, timeRange, onTimeRang
 
 // Individual Permission Form Component (with active permission warning)
 const PermissionForm = ({ student, formData, onChange, onGuardianChange, hasActivePermission }) => {
+
   return (
     <div className={`bg-gray-800/30 rounded-xl p-6 border ${hasActivePermission ? 'border-red-500/50' : 'border-cyan-500/10'} relative transition-all duration-300`}>
 
       {/* Active Permission Warning Badge */}
       {hasActivePermission && (
-        <div className="absolute -top-2 -right-2 bg-gradient-to-r from-red-600 to-red-500 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-lg flex items-center space-x-1 z-10">
-          <i className="pi pi-exclamation-triangle text-xs"></i>
-          <span>Active Permission</span>
+        <div className="mb-4 p-3 bg-gradient-to-r from-red-900/40 to-red-800/40 border border-red-500/50 rounded-lg">
+          <div className="flex items-start space-x-2">
+            <i className="pi pi-exclamation-circle text-red-300 mt-0.5 text-lg"></i>
+            <div>
+              <p className="text-red-200 text-sm font-semibold">⚠️ Active Permission Detected</p>
+              <p className="text-red-300/80 text-xs mt-1">
+                This student cannot receive a new permission until the current one is marked as returned.
+              </p>
+              <div className="mt-2 text-xs text-red-200/70">
+                <i className="pi pi-info-circle mr-1"></i>
+                Current permission must be marked as "Returned" first
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
