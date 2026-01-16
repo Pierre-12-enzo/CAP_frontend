@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // For Vite projects
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:5000/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -324,20 +324,34 @@ export const cardAPI = {
   },
 
   // Single student card generation
-  // In your cardAPI object in api.js
-  generateSingleCardWithTemplate: async (formData) => {
+  generateSingleCardSimple: async (data) => {
     try {
-      console.log('📡 Sending single card generation request...');
-      const response = await api.post('/card/generate-single-card', formData, {
+      console.log('📡 Sending to /card/generate-single-card-simple', data);
+
+      const response = await api.post('/card/generate-single-card', data, {
         headers: {
-          'Content-Type': 'multipart/form-data'
+          'Content-Type': 'application/json',
         },
-        responseType: 'blob' // ✅ IMPORTANT: Expect binary data
+        responseType: 'blob'
       });
-      return response.data; // This will be the ZIP file blob
+
+      console.log('✅ Simple card API Response received');
+      return response.data;
     } catch (error) {
-      console.error('❌ API call failed:', error);
-      throw error.response?.data || { message: 'Card generation failed' };
+      console.error('❌ Simple card generation API Error:', error);
+
+      // Try to read error from blob
+      if (error.response?.data instanceof Blob) {
+        try {
+          const errorText = await error.response.data.text();
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.error || 'Card generation failed');
+        } catch {
+          throw error;
+        }
+      }
+
+      throw error;
     }
   },
 
