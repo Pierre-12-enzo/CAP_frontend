@@ -17,12 +17,12 @@ const CardGeneration = () => {
     //Coordinates
     const [coordinates, setCoordinates] = useState({
         photo: { x: 50, y: 230, width: 250, height: 250 }, // Example
-        name: { x: 580, y: 220, maxWidth: 400 },
-        class: { x: 580, y: 270, maxWidth: 200 },
-        level: { x: 580, y: 320, maxWidth: 200 },
-        gender: { x: 580, y: 370, maxWidth: 200 },
+        name: { x: 580, y: 225, maxWidth: 500 },
+        class: { x: 580, y: 270, maxWidth: 300 },
+        level: { x: 580, y: 320, maxWidth: 500 },
+        gender: { x: 580, y: 375, maxWidth: 300 },
         residence: { x: 620, y: 420, maxWidth: 300 },
-        academic_year: { x: 670, y: 470, maxWidth: 200 }
+        academic_year: { x: 670, y: 472, maxWidth: 300 }
     });
     const [templateDimensions, setTemplateDimensions] = useState({
         width: 1080,
@@ -235,23 +235,44 @@ const CardGeneration = () => {
         );
     };
 
-    //Load template Dimensions
+    // ✅ FIXED: Load template dimensions function
     const loadTemplateDimensions = async () => {
         if (selectedTemplateId) {
             try {
                 console.log('📏 Loading template dimensions for:', selectedTemplateId);
                 const response = await cardAPI.getTemplateDimensions(selectedTemplateId);
+
                 if (response.success) {
-                    setTemplateDimensions(response.dimensions);
-                    console.log('✅ Template dimensions loaded:', response.dimensions);
+                    console.log('📏 Template dimensions response:', response.dimensions);
+
+                    // Use scaled dimensions for generation (850×478)
+                    if (response.dimensions.scaled) {
+                        setTemplateDimensions({
+                            width: response.dimensions.scaled.width,
+                            height: response.dimensions.scaled.height,
+                            scaleFactor: response.dimensions.scaled.scaleFactor
+                        });
+                        console.log('✅ Using scaled dimensions:', response.dimensions.scaled);
+                    } else {
+                        // Fallback
+                        setTemplateDimensions({
+                            width: 850,
+                            height: 478,
+                            scaleFactor: 0.7083
+                        });
+                    }
                 }
             } catch (error) {
                 console.error('❌ Failed to load template dimensions:', error);
-                // Keep default dimensions
+                // Default to 850×478
+                setTemplateDimensions({
+                    width: 850,
+                    height: 478,
+                    scaleFactor: 0.7083
+                });
             }
         }
     };
-
     // Handle modal cancel with reset
     const handleModalCancel = () => {
         setShowPhotoModal(false);
@@ -362,8 +383,10 @@ const CardGeneration = () => {
 
             // Add timeout promise for debugging
             const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('API call timeout (1min)')), 60000);
+                // Increase from 1min to 5min for batch processing
+                setTimeout(() => reject(new Error('API call timeout (5min)')), 300000);
             });
+
 
             const apiPromise = cardAPI.processCSVAndGenerate(formData);
 
@@ -446,27 +469,23 @@ const CardGeneration = () => {
                 });
             }, 300);
 
-            // ✅ FIXED: Create FormData
-            const formData = new FormData();
-            formData.append('studentId', student._id);
-            formData.append('templateId', selectedTemplateId);
-            formData.append('coordinates', JSON.stringify(coordinates));
+            // ✅ Send as JSON instead of FormData
+            const requestData = {
+                studentId: student._id,
+                templateId: selectedTemplateId,
+                coordinates: JSON.stringify(coordinates)
+            };
 
-            // ✅ Append photo file if provided
-            if (photoFile) {
-                formData.append('photo', photoFile);
-            }
+            console.log('📤 Generating single card with JSON...', requestData);
 
-            console.log('📤 Generating single card...');
-
-            // ✅ FIXED: Call API and handle blob response
-            const zipBlob = await cardAPI.generateSingleCardWithTemplate(formData);
+            // ✅ Use the simple endpoint
+            const zipBlob = await cardAPI.generateSingleCardSimple(requestData);
 
             clearInterval(progressInterval);
             setProgress(100);
             setGenerationStatus('completed');
 
-            // ✅ FIXED: Create download from blob
+            // Create download
             const url = window.URL.createObjectURL(zipBlob);
             const a = document.createElement('a');
             a.href = url;
@@ -476,7 +495,7 @@ const CardGeneration = () => {
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
 
-            // ✅ Update batch info for UI
+            // Update batch info
             setBatchInfo({
                 totalCards: 1,
                 processed: 1,
@@ -488,20 +507,10 @@ const CardGeneration = () => {
             setGenerationStatus('error');
             console.error('❌ Card generation error:', error);
 
-            // Check if it's a JSON error (backend sent error instead of blob)
-            if (error.message && error.message.includes('Unexpected token')) {
-                // Try to parse as JSON error
-                try {
-                    const errorText = await error.response.text();
-                    const errorData = JSON.parse(errorText);
-                    alert(`Card generation failed: ${errorData.error}`);
-                } catch {
-                    alert('Card generation failed: Unknown error');
-                }
-            } else if (error.error === 'PHOTO_REQUIRED') {
+            if (error.message && error.message.includes('PHOTO_REQUIRED')) {
                 setShowPhotoModal(true);
             } else {
-                alert(`Card generation failed: ${error.message}`);
+                alert(`Card generation failed: ${error.message || 'Unknown error'}`);
             }
         }
     };
@@ -1260,40 +1269,36 @@ const TemplatePreview = ({ template, coordinates, student }) => {
 
 const FixedSizeTemplatePreview = ({ template, coordinates, student }) => {
     const containerRef = useRef(null);
-    const [scale, setScale] = useState(1);
+    const [previewScale, setPreviewScale] = useState(1);
     const [containerSize, setContainerSize] = useState({ width: 800, height: 450 });
     const [imageLoaded, setImageLoaded] = useState(false);
+    const [generationScale, setGenerationScale] = useState(0.7083); // 850/1200
 
     const displayStudent = student || {};
 
-    // Get the ACTUAL template URL
     const templateUrl = template?.frontSide?.secure_url ||
         template?.frontSide?.url ||
         template?.frontSide?.filepath;
 
-    // Fixed aspect ratio (your template: 1200×675 = 16:9)
-    const templateAspectRatio = 1200 / 675; // 16:9
-    const fixedContainerWidth = 800; // Fixed width, won't change with sidebar
-    const fixedContainerHeight = fixedContainerWidth / templateAspectRatio;
-
     useEffect(() => {
-        // Always use fixed size, ignore parent container changes
+        // Preview container size (800×450)
+        const previewWidth = 800;
+        const previewHeight = 450;
+
         setContainerSize({
-            width: fixedContainerWidth,
-            height: fixedContainerHeight
+            width: previewWidth,
+            height: previewHeight
         });
 
-        // Calculate scale: fixed container vs actual template (1200×675)
-        const scaleX = fixedContainerWidth / 1200;
-        const scaleY = fixedContainerHeight / 675;
-        const minScale = Math.min(scaleX, scaleY);
+        // Preview scale: 800/1200 = 0.6667
+        // Generation scale: 850/1200 = 0.7083
+        const previewScaleFactor = previewWidth / 1200;
+        setPreviewScale(previewScaleFactor);
 
-        setScale(minScale);
-
-        console.log('📏 Preview scaling:', {
-            templateSize: '1200×675',
-            containerSize: `${fixedContainerWidth}×${fixedContainerHeight}`,
-            scale: minScale
+        console.log('📐 Scaling info:', {
+            preview: `${previewScaleFactor.toFixed(4)} (800/1200)`,
+            generation: `${generationScale.toFixed(4)} (850/1200)`,
+            previewSize: `${previewWidth}×${previewHeight}`
         });
     }, []);
 
@@ -1305,11 +1310,12 @@ const FixedSizeTemplatePreview = ({ template, coordinates, student }) => {
                 field === 'name' ? 'Student Name' :
                     field.charAt(0).toUpperCase() + field.slice(1));
 
-        const scaledX = coord.x * scale;
-        const scaledY = coord.y * scale;
-        const scaledWidth = coord.width ? coord.width * scale : 'auto';
-        const scaledHeight = coord.height ? coord.height * scale : 'auto';
-        const scaledMaxWidth = coord.maxWidth ? coord.maxWidth * scale : 'auto';
+        // Scale coordinates for preview (0.6667 scale)
+        const scaledX = coord.x * previewScale;
+        const scaledY = coord.y * previewScale;
+        const scaledWidth = coord.width ? coord.width * previewScale : 'auto';
+        const scaledHeight = coord.height ? coord.height * previewScale : 'auto';
+        const scaledMaxWidth = coord.maxWidth ? coord.maxWidth * previewScale : 'auto';
 
         const styles = {
             position: 'absolute',
@@ -1376,29 +1382,20 @@ const FixedSizeTemplatePreview = ({ template, coordinates, student }) => {
                     height: `${containerSize.height}px`
                 }}
             >
-                {/* Template image with fixed scaling */}
                 <img
                     src={templateUrl}
                     alt="Template Preview"
                     className="w-full h-full object-contain"
                     onLoad={() => setImageLoaded(true)}
-                    style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'contain'
-                    }}
                 />
 
-                {/* Debug overlay - shows scaling info */}
                 {imageLoaded && (
                     <div className="absolute top-0 left-0 right-0 bg-black bg-opacity-60 text-white text-xs p-1 text-center">
-                        📏 Fixed: {containerSize.width}×{containerSize.height}px |
-                        Scale: {scale.toFixed(3)} |
-                        Template: 1200×675px
+                        📏 Preview: 800×450px (scale: {previewScale.toFixed(3)}) |
+                        🎨 Final: 850×478px (scale: {generationScale.toFixed(3)})
                     </div>
                 )}
 
-                {/* Coordinates overlay */}
                 <div className="absolute inset-0">
                     {Object.entries(coordinates).map(([field, coord]) =>
                         renderCoordinate(field, coord)
