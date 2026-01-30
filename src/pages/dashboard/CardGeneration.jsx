@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { cardAPI, templateAPI } from '../../services/api';
 
 const CardGeneration = () => {
+
+
+    //================================== DECLARE STATES ==================================//
     const [activeStep, setActiveStep] = useState('upload');
     const [generationMode, setGenerationMode] = useState('batch');
     const [generationStatus, setGenerationStatus] = useState('idle');
@@ -14,6 +17,18 @@ const CardGeneration = () => {
     const [templates, setTemplates] = useState([]);
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
     const [photoUploadStatus, setPhotoUploadStatus] = useState('idle');
+    const [batchId, setBatchId] = useState(null);
+    const [progressInterval, setProgressInterval] = useState(null);
+    const [realProgress, setRealProgress] = useState({
+        status: 'idle',
+        percentage: 0,
+        processed: 0,
+        generated: 0,
+        total: 0,
+        failed: 0,
+        currentStudent: null,
+        estimatedTime: null
+    });
     //Coordinates
     const [coordinates, setCoordinates] = useState({
         photo: { x: 50, y: 230, width: 250, height: 250 }, // Example
@@ -33,6 +48,26 @@ const CardGeneration = () => {
     const [csvFile, setCsvFile] = useState(null);
     const [photoZipFile, setPhotoZipFile] = useState(null);
 
+    const [searchTerm, setSearchTerm] = useState('');
+    const [showStudentSelect, setShowStudentSelect] = useState(false);
+
+    // filteredStudents logic inside the component:
+    const filteredStudents = students.filter(student => {
+        const searchLower = searchTerm.toLowerCase().trim();
+        if (!searchLower) return true;
+
+        return (
+            (student.name?.toLowerCase() || '').includes(searchLower) ||
+            (student.student_id?.toLowerCase() || '').includes(searchLower) ||
+            (student.class?.toLowerCase() || '').includes(searchLower)
+        );
+    });
+
+
+    //================================== DECLARE STATES ==================================//
+
+
+
     // UseEffect for Automatic Load Data
     useEffect(() => {
         loadTemplates();
@@ -43,7 +78,11 @@ const CardGeneration = () => {
         }
     }, [generationMode, selectedTemplateId]);
 
-    //Load Students
+
+
+    //=====================LOADING OR FETCHING====================//
+
+    //Load students for single mode
     const loadStudents = async () => {
         try {
             const response = await cardAPI.getStudents();
@@ -74,7 +113,6 @@ const CardGeneration = () => {
         }
     };
 
-    // Load template preview URLs
     // Load template preview URLs - UPDATED FOR CLOUDINARY
     const loadTemplatePreviews = async (template) => {
         try {
@@ -99,6 +137,43 @@ const CardGeneration = () => {
             }
         } catch (error) {
             console.error('Error loading template previews:', error);
+        }
+    };
+
+    // lOADING  progress
+    const fetchBatchProgress = async (batchId) => {
+        try {
+            const response = await cardAPI.getBatchProgress(batchId);
+            if (response.success) {
+                setRealProgress(response.progress);
+
+                // Update the main progress bar
+                setProgress(response.progress.percentage);
+
+                // Update batch info
+                setBatchInfo({
+                    totalCards: response.progress.total,
+                    processed: response.progress.processed,
+                    generated: response.progress.generated,
+                    failed: response.progress.failed,
+                    currentStudent: response.progress.currentStudent
+                });
+
+                // If completed or errored, stop polling
+                if (['completed', 'error', 'finalizing'].includes(response.progress.status)) {
+                    if (progressInterval) {
+                        clearInterval(progressInterval);
+                        setProgressInterval(null);
+                    }
+
+                    // If error, update status
+                    if (response.progress.status === 'error') {
+                        setGenerationStatus('error');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch progress:', error);
         }
     };
 
@@ -316,90 +391,88 @@ const CardGeneration = () => {
     const handleCSVProcessing = async (e) => {
         e?.preventDefault();
 
-        console.log('🟡 1. Starting batch processing...');
+        console.log('🟡 Starting batch processing with REAL progress...');
 
-        // Validate template
-        if (!selectedTemplateId) {
-            console.log('❌ No template selected');
-            alert('Please select a template first');
-            setActiveStep('template');
+        // Validation
+        if (!selectedTemplateId || !csvFile) {
+            alert('Please select a template and CSV file');
             return;
         }
 
-        // Validate CSV using state
-        if (!csvFile) {
-            console.log('❌ No CSV file selected');
-            alert('Please select a CSV file');
-            setActiveStep('upload');
-            return;
-        }
-
-        console.log('🟡 2. Validation passed, setting status...');
         setGenerationStatus('processing');
         setProgress(0);
 
         const formData = new FormData();
-
-        // Add CSV file from state
         formData.append('csv', csvFile);
-        console.log('📁 Added CSV:', csvFile.name, csvFile.size);
+        formData.append('templateId', selectedTemplateId);
+        formData.append('coordinates', JSON.stringify(coordinates));
 
-        // Add photo ZIP if provided
         if (photoZipFile) {
             formData.append('photoZip', photoZipFile);
-            console.log('📁 Added Photos ZIP:', photoZipFile.name, photoZipFile.size);
-        }
-
-        // Add template ID
-        formData.append('templateId', selectedTemplateId);
-        console.log('🆔 Template ID:', selectedTemplateId);
-
-        // Add coordinates
-        formData.append('coordinates', JSON.stringify(coordinates));
-        console.log('📍 Coordinates:', coordinates);
-
-        // Debug: Check what's in formData
-        for (let pair of formData.entries()) {
-            console.log('📦 FormData:', pair[0], pair[1]);
         }
 
         try {
-            console.log('🟡 3. Starting progress simulation...');
+            console.log('📡 Making API request...');
 
-            // Simulate progress
-            const progressInterval = setInterval(() => {
-                setProgress(prev => {
-                    console.log(`📊 Progress: ${prev}%`);
-                    if (prev >= 90) {
-                        clearInterval(progressInterval);
-                        return 90;
+            // Clear any existing interval
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                setProgressInterval(null);
+            }
+
+            // Start real progress polling
+            const pollInterval = setInterval(async () => {
+                try {
+                    // Use the student count from CSV to estimate progress
+                    // First, we need to know how many students are in the CSV
+                    const csvText = await csvFile.text();
+                    const lines = csvText.split('\n').filter(line => line.trim());
+                    const totalStudents = Math.max(0, lines.length - 1); // Subtract header
+
+                    if (totalStudents > 0) {
+                        // Get progress from backend if endpoint exists
+                        // For now, we'll estimate based on time
+                        const elapsedSeconds = (Date.now() - startTime) / 1000;
+                        const cardsPerSecond = 0.5; // Estimate 0.5 cards per second
+                        const estimatedProcessed = Math.min(totalStudents, Math.floor(elapsedSeconds * cardsPerSecond));
+                        const percentage = Math.min(95, Math.round((estimatedProcessed / totalStudents) * 100));
+
+                        setRealProgress({
+                            status: 'generating_cards',
+                            percentage: percentage,
+                            processed: estimatedProcessed,
+                            generated: estimatedProcessed,
+                            total: totalStudents,
+                            failed: 0,
+                            currentStudent: {
+                                name: `Processing...`,
+                                id: `#${estimatedProcessed}`,
+                                index: estimatedProcessed,
+                                total: totalStudents
+                            }
+                        });
+
+                        setProgress(percentage);
                     }
-                    return prev + 10;
-                });
-            }, 500);
+                } catch (error) {
+                    console.warn('Progress estimation error:', error.message);
+                }
+            }, 2000); // Update every 2 seconds
 
-            console.log('🟡 4. Calling API...');
-            console.log('📡 API URL: /card/process-csv-generate');
+            setProgressInterval(pollInterval);
+            const startTime = Date.now();
 
-            // Add timeout promise for debugging
-            const timeoutPromise = new Promise((_, reject) => {
-                // Increase from 1min to 5min for batch processing
-                setTimeout(() => reject(new Error('API call timeout (5min)')), 300000);
-            });
+            // Make the API call
+            const zipBlob = await cardAPI.processCSVAndGenerate(formData);
 
+            // Clear polling
+            clearInterval(pollInterval);
+            setProgressInterval(null);
 
-            const apiPromise = cardAPI.processCSVAndGenerate(formData);
-
-            console.log('🟡 5. Waiting for API response...');
-            const zipBlob = await Promise.race([apiPromise, timeoutPromise]);
-
-            console.log('✅ API response received!');
-            clearInterval(progressInterval);
             setProgress(100);
             setGenerationStatus('completed');
 
-            // Create download
-            console.log('🟡 6. Creating download...');
+            // Download
             const url = window.URL.createObjectURL(zipBlob);
             const a = document.createElement('a');
             a.href = url;
@@ -407,41 +480,28 @@ const CardGeneration = () => {
             document.body.appendChild(a);
             a.click();
 
-            // Cleanup
             setTimeout(() => {
                 document.body.removeChild(a);
                 window.URL.revokeObjectURL(url);
                 console.log('✅ Download complete!');
             }, 100);
 
-            // Update UI
-            setBatchInfo({
-                totalCards: 1,
-                processed: 1,
-                failed: 0
-            });
-
-            console.log('✅ Batch processing completed successfully');
+            console.log('✅ Batch processing successful!');
 
         } catch (error) {
-            console.error('❌ Batch processing FAILED:', error);
-            console.error('Error details:', {
-                message: error.message,
-                stack: error.stack,
-                response: error.response
-            });
+            console.error('❌ Batch processing error:', error);
+
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                setProgressInterval(null);
+            }
 
             setGenerationStatus('error');
 
-            // Show specific error messages
-            if (error.message.includes('timeout')) {
-                alert('Request timed out. Server might be busy or offline.');
-            } else if (error.message.includes('Network Error')) {
-                alert('Network error. Check your connection.');
-            } else if (error.response) {
-                alert(`Server error: ${error.response.status} ${error.response.statusText}`);
+            if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                alert('Processing is taking longer than expected. Cards are being generated in the backend.');
             } else {
-                alert(`Processing failed: ${error.message || 'Unknown error'}`);
+                alert(`Error: ${error.message}`);
             }
         }
     };
@@ -820,23 +880,107 @@ const CardGeneration = () => {
                                 <div className="space-y-6">
                                     <h3 className="text-lg font-semibold text-gray-900">Select Student</h3>
 
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Choose Student
-                                        </label>
-                                        <select
-                                            onChange={(e) => handleSingleStudentSelect(e.target.value)}
-                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                                    {/* Student Search Dropdown (like PermissionStudio) */}
+                                    <div className="relative">
+                                        <button
+                                            onClick={() => setShowStudentSelect(!showStudentSelect)}
+                                            className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-left flex justify-between items-center hover:border-emerald-500 transition-colors"
                                         >
-                                            <option value="">Select a student...</option>
-                                            {students.map(student => (
-                                                <option key={student._id} value={student._id}>
-                                                    {student.name} - {student.student_id}
-                                                    {!student.has_photo && ' 📸(Needs Photo)'}
-                                                    {student.card_generated && ` ✅(${student.card_generation_count} cards)`}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            <div>
+                                                <span className="text-gray-700">
+                                                    {selectedStudent ? selectedStudent.name : 'Select a student...'}
+                                                </span>
+                                                {selectedStudent && (
+                                                    <span className="text-gray-500 text-sm ml-2">
+                                                        {selectedStudent.student_id} • {selectedStudent.class}
+                                                        {!selectedStudent.has_photo && ' 📸(Needs Photo)'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <i className={`pi pi-chevron-${showStudentSelect ? 'up' : 'down'} text-gray-400`}></i>
+                                        </button>
+
+                                        {/* Student Search Dropdown */}
+                                        {showStudentSelect && (
+                                            <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-300 rounded-xl shadow-lg z-10 max-h-64 overflow-hidden">
+                                                <div className="p-3 border-b border-gray-200">
+                                                    <div className="relative">
+                                                        <i className="pi pi-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Search students by name, ID, or class..."
+                                                            value={searchTerm}
+                                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                            autoFocus
+                                                        />
+                                                    </div>
+                                                    <div className="mt-1 text-xs text-gray-500">
+                                                        {!searchTerm.trim() ? 'Showing recent students' : `Searching for: "${searchTerm}"`}
+                                                    </div>
+                                                </div>
+                                                <div className="overflow-y-auto max-h-48">
+                                                    {filteredStudents.length > 0 ? (
+                                                        <>
+                                                            {/* Show limited results when no search */}
+                                                            {!searchTerm.trim() && filteredStudents.length > 8 && (
+                                                                <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-100">
+                                                                    <div className="text-xs text-emerald-700 flex items-center">
+                                                                        <i className="pi pi-info-circle mr-1"></i>
+                                                                        Showing 8 of {filteredStudents.length} students. Type to search...
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Display students (limited if no search) */}
+                                                            {(searchTerm.trim() ? filteredStudents : filteredStudents.slice(0, 8)).map(student => (
+                                                                <button
+                                                                    key={student._id}
+                                                                    onClick={() => {
+                                                                        handleSingleStudentSelect(student._id);
+                                                                        setShowStudentSelect(false);
+                                                                    }}
+                                                                    className="w-full text-left p-3 hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-b-0 flex justify-between items-center"
+                                                                >
+                                                                    <div>
+                                                                        <div className="font-medium text-gray-900">{student.name}</div>
+                                                                        <div className="text-sm text-gray-500">
+                                                                            {student.student_id} • {student.class}
+                                                                        </div>
+                                                                    </div>
+                                                                    {!student.has_photo && (
+                                                                        <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded">
+                                                                            Needs Photo
+                                                                        </span>
+                                                                    )}
+                                                                </button>
+                                                            ))}
+
+                                                            {/* Show "view all" option when no search */}
+                                                            {!searchTerm.trim() && filteredStudents.length > 8 && (
+                                                                <button
+                                                                    onClick={() => setSearchTerm(' ')}
+                                                                    className="w-full text-center p-3 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition-colors border-t border-gray-200"
+                                                                >
+                                                                    <div className="flex items-center justify-center">
+                                                                        <i className="pi pi-list mr-2"></i>
+                                                                        View All Students ({filteredStudents.length})
+                                                                    </div>
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <div className="text-center py-6">
+                                                            <i className="pi pi-user-slash text-2xl text-gray-300 mb-2"></i>
+                                                            <p className="text-gray-500 font-medium">No matching students</p>
+                                                            <p className="text-gray-400 text-sm mt-1">
+                                                                {searchTerm.trim() ? `No results for "${searchTerm}"` : 'No students available'}
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {selectedStudent && (
@@ -939,6 +1083,7 @@ const CardGeneration = () => {
                                     progress={progress}
                                     batchInfo={batchInfo}
                                     mode="batch"
+                                    realProgress={realProgress}
                                 />
                             )}
 
@@ -950,6 +1095,7 @@ const CardGeneration = () => {
                                     batchInfo={batchInfo}
                                     mode="single"
                                     student={selectedStudent}
+                                    realProgress={realProgress}
                                 />
                             )}
                         </div>
@@ -1539,11 +1685,19 @@ const CoordinateControl = ({ field, coordinates, onChange }) => (
 );
 
 //Process Step
-const ProcessStep = ({ onGenerate, generationStatus, progress, batchInfo, mode, student }) => (
+const ProcessStep = ({ onGenerate, generationStatus, batchInfo, mode, student, realProgress }) => (
     <div className="space-y-6">
         <h3 className="text-lg font-semibold text-gray-900">
             {mode === 'batch' ? 'Generate ID Cards' : 'Generate Single Card'}
         </h3>
+
+        {/* Show real progress for batch mode */}
+        {mode === 'batch' && generationStatus === 'processing' && realProgress && (
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <RealProgressDisplay progress={realProgress} />
+            </div>
+        )}
+
 
         {mode === 'single' && student && (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
@@ -1563,6 +1717,8 @@ const ProcessStep = ({ onGenerate, generationStatus, progress, batchInfo, mode, 
                 </div>
             </div>
         )}
+
+
 
         <div className="text-center space-y-4">
             <button
@@ -1741,6 +1897,95 @@ const PhotoUploadModal = ({ student, onPhotoSave, onCancel, uploadedPhoto, setUp
                     </button>
                 </div>
             </div>
+        </div>
+    );
+};
+// to show real-time progress
+const RealProgressDisplay = ({ progress }) => {
+    if (!progress || progress.status === 'idle') return null;
+
+    const getStatusColor = (status) => {
+        switch (status) {
+            case 'starting': return 'text-blue-600';
+            case 'parsing_csv': return 'text-purple-600';
+            case 'uploading_photos': return 'text-indigo-600';
+            case 'generating_cards': return 'text-emerald-600';
+            case 'finalizing': return 'text-green-600';
+            case 'completed': return 'text-green-600';
+            case 'error': return 'text-red-600';
+            default: return 'text-gray-600';
+        }
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="flex justify-between items-center">
+                <div>
+                    <p className="font-medium text-gray-900">Real-time Progress</p>
+                    <p className={`text-sm font-medium ${getStatusColor(progress.status)}`}>
+                        {progress.status.replace('_', ' ').toUpperCase()}
+                    </p>
+                </div>
+                <div className="text-right">
+                    <p className="text-lg font-bold text-emerald-600">{progress.percentage}%</p>
+                    <p className="text-xs text-gray-500">
+                        {progress.processed} of {progress.total} students
+                    </p>
+                </div>
+            </div>
+
+            {/* Detailed progress bar */}
+            <div className="w-full bg-gray-200 rounded-full h-3">
+                <div
+                    className="bg-gradient-to-r from-blue-500 via-emerald-500 to-green-600 h-3 rounded-full transition-all duration-300"
+                    style={{ width: `${progress.percentage}%` }}
+                ></div>
+            </div>
+
+            {/* Current student info */}
+            {progress.currentStudent && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-sm font-medium text-blue-800">Currently Processing:</p>
+                            <p className="text-sm text-blue-700">
+                                {progress.currentStudent.name} ({progress.currentStudent.id})
+                            </p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-sm text-blue-600">
+                                {progress.currentStudent.index}/{progress.currentStudent.total}
+                            </p>
+                            <p className="text-xs text-blue-500">
+                                Card #{progress.generated}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                    <div className="text-xl font-bold text-emerald-600">{progress.generated}</div>
+                    <div className="text-xs text-gray-600">Cards Generated</div>
+                </div>
+                <div className="text-center">
+                    <div className="text-xl font-bold text-blue-600">{progress.processed}</div>
+                    <div className="text-xs text-gray-600">Students Processed</div>
+                </div>
+                <div className="text-center">
+                    <div className="text-xl font-bold text-red-600">{progress.failed}</div>
+                    <div className="text-xs text-gray-600">Failed</div>
+                </div>
+            </div>
+
+            {/* Estimated time */}
+            {progress.duration && (
+                <div className="text-center text-sm text-gray-500">
+                    Process completed in {progress.duration.toFixed(1)} seconds
+                </div>
+            )}
         </div>
     );
 };

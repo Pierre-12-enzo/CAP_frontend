@@ -1,13 +1,58 @@
-// services/api.js
 import axios from 'axios';
 
-// For Vite projects
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+// ============================================
+// ENVIRONMENT-BASED CONFIGURATION
+// ============================================
+
+// Determine environment
+const getEnvironment = () => {
+  // Method 1: Check Vite environment variable (for React/Vite projects)
+  if (import.meta.env?.MODE) {
+    return import.meta.env.MODE; // 'development', 'production', 'test'
+  }
+  
+  // Method 2: Check process.env for Create React App or Node.js
+  if (process.env?.NODE_ENV) {
+    return process.env.NODE_ENV;
+  }
+  
+  // Method 3: Check window location for production
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'development';
+    }
+    return 'production';
+  }
+  
+  // Default
+  return 'production';
+};
+
+// API URLs for different environments
+const API_URLS = {
+  development: 'http://localhost:5000/api',
+  production: 'https://cap-backend-e3x6.onrender.com/api', // Replace with your production API URL
+  staging: 'https://staging-api.yourdomain.com/api', // Optional: staging environment
+  test: 'http://localhost:5000/api' // For testing
+};
+
+// Get current environment
+const currentEnv = getEnvironment();
+
+// Select API URL based on environment
+const API_BASE_URL = API_URLS[currentEnv] || API_URLS.production;
+
+console.log(`🚀 API Configuration: Environment = ${currentEnv}, API Base URL = ${API_BASE_URL}`);
+
+// ============================================
+// AXIOS CONFIGURATION
+// ============================================
 
 // Create axios instance with default config
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: currentEnv === 'production' ? 15000 : 30000, // Longer timeout for production
   headers: {
     'Content-Type': 'application/json',
   },
@@ -245,7 +290,7 @@ export const cardAPI = {
   // Download generated cards
   downloadCards: async (batchId) => {
     try {
-      const response = await api.get(`/cards/download/${batchId}`, {
+      const response = await api.get(`/card/download/${batchId}`, {
         responseType: 'blob'
       });
       return response.data;
@@ -253,74 +298,32 @@ export const cardAPI = {
       throw error.response?.data || { message: 'Download failed' };
     }
   },
+  // Get batch progress
+  getBatchProgress: async (batchId) => {
+    const response = await api.get(`/card/batch-progress/${batchId}`);
+    return response.data;
+  },
   // Single-click CSV processing
   processCSVAndGenerate: async (formData) => {
-    console.log('🟡 API: processCSVAndGenerate called');
-
-    try {
-      console.log('🟡 API: Making request to /card/process-csv-generate');
-      console.log('🟡 API: FormData entries:');
-
-      // Log form data contents
-      for (let pair of formData.entries()) {
-        if (pair[1] instanceof File) {
-          console.log(`  ${pair[0]}: ${pair[1].name} (${pair[1].size} bytes)`);
-        } else {
-          console.log(`  ${pair[0]}: ${pair[1]}`);
-        }
+    const response = await api.post('/card/process-csv-generate', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      responseType: 'blob',
+      timeout: 600000, // 10 minutes timeout
+      onDownloadProgress: (progressEvent) => {
+        // You can use this for download progress if needed
       }
+    });
 
-      const response = await api.post('/card/process-csv-generate', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
-        responseType: 'blob',
-        timeout: 300000,
-        onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          console.log(`📤 Upload progress: ${percentCompleted}%`);
-        }
-      });
-
-      console.log('✅ API: Request successful, received blob');
-      console.log('✅ API: Response size:', response.data.size, 'bytes');
-      console.log('✅ API: Response type:', response.data.type);
-
-      return response.data;
-
-    } catch (error) {
-      console.error('❌ API: Request failed:', error);
-
-      if (error.code === 'ECONNABORTED') {
-        console.error('❌ API: Request timeout');
-        throw new Error('Request timeout. Server took too long to respond.');
-      }
-
-      if (error.response) {
-        console.error('❌ API: Server responded with error:', error.response.status);
-
-        // Try to read error message
-        try {
-          const errorText = await error.response.data.text();
-          console.error('❌ API: Error response:', errorText);
-
-          try {
-            const errorData = JSON.parse(errorText);
-            throw new Error(errorData.error || `Server error: ${error.response.status}`);
-          } catch {
-            throw new Error(`Server error: ${error.response.status} - ${errorText.substring(0, 100)}`);
-          }
-        } catch (parseError) {
-          throw new Error(`Server error: ${error.response.status}`);
-        }
-      } else if (error.request) {
-        console.error('❌ API: No response received');
-        throw new Error('No response from server. Check if backend is running.');
-      } else {
-        console.error('❌ API: Request setup error:', error.message);
-        throw error;
-      }
+    // Try to get batch ID from headers
+    const batchId = response.headers['x-batch-id'];
+    if (batchId) {
+      // You might want to store this somewhere accessible
+      console.log('Batch ID received:', batchId);
     }
+
+    return response.data;
   },
 
   // Single student card generation
@@ -391,9 +394,27 @@ export const studentAPI = {
   // Update student
   updateStudent: async (studentId, studentData) => {
     try {
-      const response = await api.put(`/students/${studentId}`, studentData);
+      console.log('📤 API: Updating student', studentId);
+
+      // If it's FormData, don't set Content-Type header
+      const isFormData = studentData instanceof FormData;
+
+      const config = {
+        headers: isFormData ? {} : { 'Content-Type': 'application/json' }
+      };
+
+      const response = await api.put(`/students/${studentId}`, studentData, config);
+
+      console.log('✅ API: Update response:', response.data);
       return response.data;
+
     } catch (error) {
+      console.error('❌ API: Error updating student:', {
+        error: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+
       throw error.response?.data || { message: 'Failed to update student' };
     }
   },
@@ -408,19 +429,138 @@ export const studentAPI = {
     }
   },
 
-  // Bulk upload students via CSV
-  bulkUpload: async (csvFile) => {
+  // Bulk import from CSV (USE EXISTING ENDPOINT)
+  bulkImportCSV: async (csvFile, onProgress = null) => {
     try {
       const formData = new FormData();
       formData.append('csv', csvFile);
 
-      const response = await api.post('/students/bulk-upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      return response.data;
+      const config = {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 300000
+      };
+
+      // Add progress callback if provided
+      if (onProgress) {
+        config.onUploadProgress = (progressEvent) => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            onProgress(percentCompleted);
+          }
+        };
+      }
+
+      console.log('📤 Starting CSV import...');
+      const response = await api.post('/students/bulk-import', formData, config);
+      console.log('✅ CSV import API response:', response.data);
+
+      // If we have a progress callback, signal completion
+      if (onProgress && onProgress(100)) {
+        // Optional: Add a small delay to show 100%
+        setTimeout(() => {
+          // Progress completed
+        }, 500);
+      }
+
+      // Handle response format
+      const data = response.data;
+
+      if (data.success === true) {
+        return data;
+      }
+
+      if (data.results && typeof data.results === 'object') {
+        return {
+          success: true,
+          message: data.message || 'CSV import completed successfully',
+          results: data.results,
+          summary: data.summary || `Processed ${data.results.total || 0} students`
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Import completed',
+        results: data,
+        summary: 'CSV import processed'
+      };
+
     } catch (error) {
-      throw error.response?.data || { message: 'Bulk upload failed' };
+      const errorMessage = error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.message;
+      throw new Error(errorMessage);
     }
+  },
+
+  // Bulk import with photos with progress
+  bulkImportWithPhotos: async (csvFile, photoZipFile, onProgress = null) => {
+    try {
+      const formData = new FormData();
+      formData.append('csv', csvFile);
+      if (photoZipFile) {
+        formData.append('photoZip', photoZipFile);
+      }
+
+      const config = {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 300000
+      };
+
+      // Add progress callback if provided
+      if (onProgress) {
+        config.onUploadProgress = (progressEvent) => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            onProgress(percentCompleted);
+          }
+        };
+      }
+
+      const response = await api.post('/students/bulk-import-with-photos', formData, config);
+
+      // Handle response format
+      const data = response.data;
+
+      if (data.success === true) {
+        return data;
+      }
+
+      if (data.results && typeof data.results === 'object') {
+        return {
+          success: true,
+          message: data.message || 'CSV + Photos import completed successfully',
+          results: data.results,
+          summary: data.summary || `Processed ${data.results.total || 0} students`
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Import completed',
+        results: data,
+        summary: 'CSV + Photos import processed'
+      };
+
+    } catch (error) {
+      const errorMessage = error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.message;
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Get student photo URL
+  getStudentPhotoUrl: (studentId, size = 'medium') => {
+    return `${API_BASE_URL}/students/photo/${studentId}?size=${size}`;
   },
   deleteAllStudents: async () => {
     try {
