@@ -7,6 +7,7 @@ import Dashboard from './components/Dashboard';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import CardGeneration from './pages/dashboard/CardGeneration';
 import NotFound from './components/errors/NotFound';
+import LandingPage from './components/landing/LandingPage';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
       <Router>
         <div className="min-h-screen bg-gradient-to-br from-emerald-900 via-green-900 to-teal-900">
           <Routes>
+            <Route path='/landing' element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/dashboard/*" element={
